@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="sk" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plátenko | Organizér malieb</title>
+  <link rel="icon" type="image/png" href="images/logo_only_IG_transparent.png">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .sorter-container { max-width: 1200px; margin: 20px auto 80px; padding: 0 24px; }
+    
+    /* Sticky Controls Bar */
+    .sticky-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg-surface);
+      border-bottom: 2px solid var(--border-color);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+      margin: 0 -24px 24px -24px;
+      padding: 14px 24px;
+    }
+    .sorter-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; }
+    .stats-bar { display: flex; gap: 16px; font-size: 0.92rem; color: var(--text-muted); }
+    .search-input { padding: 9px 16px; border-radius: 9999px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-main); width: 220px; font-size: 0.9rem; }
+    .search-input:focus { outline: none; border-color: #6366f1; }
+    .sorter-table { width: 100%; border-collapse: collapse; margin-top: 16px; background: var(--bg-surface); border-radius: 12px; overflow: hidden; box-shadow: var(--card-shadow); border: 1px solid var(--border-color); }
+    .sorter-table th { text-align: left; padding: 14px 18px; background: var(--bg-subtle); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border-color); }
+    .sorter-table td { padding: 10px 14px; border-bottom: 1px solid var(--border-color); vertical-align: middle; font-size: 0.92rem; }
+    .sorter-table tr.selected-for-merge { background: rgba(99, 102, 241, 0.08) !important; outline: 2px solid #6366f1; outline-offset: -2px; }
+    .sorter-table tr:hover { background: var(--bg-subtle); }
+    .thumb-preview { width: 60px; height: 60px; border-radius: 6px; object-fit: cover; background: var(--bg-subtle); display: block; }
+    .inline-edit-input { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-surface); color: var(--text-main); font-size: 0.88rem; }
+    .inline-edit-input:focus { outline: none; border-color: var(--border-focus); }
+    .tag-badge { display: inline-block; padding: 3px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; background: var(--bg-subtle); color: var(--text-muted); }
+    .status-select { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-surface); color: var(--text-main); font-size: 0.82rem; }
+    .btn-save-export { background: var(--text-main); color: var(--bg-primary); border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 0.9rem; }
+    .btn-merge-action { background: #6366f1; color: #fff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; display: none; align-items: center; gap: 6px; white-space: nowrap; font-size: 0.9rem; }
+    .btn-merge-action.visible { display: inline-flex; }
+
+    /* Merge selection checkbox style */
+    .merge-select-btn { background: none; border: 2px solid var(--border-color); width: 26px; height: 26px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1rem; transition: all 0.15s; }
+    .merge-select-btn.selected { background: #6366f1; border-color: #6366f1; color: white; }
+    .merge-select-btn:hover:not(.selected) { border-color: #6366f1; }
+
+    /* Merge selection info bar */
+    .merge-info-bar { background: rgba(99, 102, 241, 0.1); border: 1px solid #6366f1; border-radius: 10px; padding: 12px 18px; margin-top: 12px; display: none; align-items: center; justify-content: space-between; gap: 12px; }
+    .merge-info-bar.visible { display: flex; }
+
+    /* Merge modal */
+    .merge-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.65); backdrop-filter: blur(6px); z-index: 200; display: none; align-items: center; justify-content: center; padding: 24px; }
+    .merge-modal-overlay.open { display: flex; }
+    .merge-modal { background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 16px; max-width: 820px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 32px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); }
+    .merge-modal h2 { font-size: 1.4rem; margin-bottom: 6px; }
+    .merge-modal p { color: var(--text-muted); margin-bottom: 18px; font-size: 0.92rem; }
+    .merge-grid-multi { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
+    .merge-preview-card { background: var(--bg-subtle); border: 2px solid var(--border-color); border-radius: 10px; padding: 12px; cursor: pointer; transition: all 0.2s; position: relative; }
+    .merge-preview-card.pick-title { border-color: #6366f1; background: rgba(99,102,241,0.08); box-shadow: 0 0 0 2px #6366f1; }
+    .merge-preview-card img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; margin-bottom: 8px; }
+    .merge-preview-card strong { display: block; font-size: 0.9rem; margin-bottom: 4px; word-break: break-word; }
+    .merge-preview-card span { font-size: 0.78rem; color: var(--text-muted); }
+    .merge-badge-primary { position: absolute; top: 8px; right: 8px; background: #6366f1; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 9999px; text-transform: uppercase; }
+    .merge-modal-actions { display: flex; gap: 12px; justify-content: flex-end; }
+    .merge-hint { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="container nav-inner">
+      <a href="index.html" class="brand">
+        <img src="images/logo_only_IG_transparent.png" alt="Plátenko" class="brand-logo">
+        <div class="brand-text">
+          <span class="brand-title">Plátenko Organizér</span>
+          <span class="brand-subtitle">Prehľad, premenovanie a zlučovanie malieb</span>
+        </div>
+      </a>
+      <div class="nav-actions">
+        <a href="index.html" class="theme-toggle-btn" style="text-decoration: none;">← Galéria</a>
+        <button id="themeToggle" class="theme-toggle-btn">🌙 <span>Tmavý</span></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="sorter-container">
+
+    <!-- Sticky Toolbar (Header + Controls + Info Bar) -->
+    <div class="sticky-toolbar">
+      <div class="sorter-header">
+        <div>
+          <h1 style="font-size: 1.45rem; margin-bottom: 4px;">Zoznam obrazov</h1>
+          <div class="stats-bar">
+            <span>Celkovo: <strong id="totalCount">0</strong></span>
+            <span>2024: <strong id="count2024">0</strong></span>
+            <span>2023: <strong id="count2023">0</strong></span>
+            <span>2022: <strong id="count2022">0</strong></span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          <input type="text" id="searchInput" class="search-input" placeholder="Hľadať podľa názvu, dátumu...">
+          <button id="mergeBtn" class="btn-merge-action" title="Zlúčiť vybrané obrazy do jedného">🔗 Zlúčiť vybrané (0)</button>
+          <button id="exportBtn" class="btn-save-export">💾 Uložiť zmeny</button>
+        </div>
+      </div>
+
+      <!-- Merge Selection Info Bar -->
+      <div class="merge-info-bar" id="mergeInfoBar">
+        <span>🔗 <strong>Mód zlúčenia:</strong> Označ <strong>checkboxy</strong> (☐) pri 2 alebo viacerých albumoch, ktoré sú tá istá maľba.</span>
+        <button onclick="clearMergeSelection()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:1.2rem;" title="Zrušiť výber">✕</button>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div style="overflow-x: auto;">
+      <table class="sorter-table">
+        <thead>
+          <tr>
+            <th style="width: 32px;" title="Vybrať pre zlúčenie">☐</th>
+            <th style="width: 64px;">Náhľad</th>
+            <th style="width: 110px;">Dátum</th>
+            <th>Názov maľby</th>
+            <th style="width: 120px;">Technika</th>
+            <th style="width: 90px;">Fotky</th>
+            <th style="width: 115px;">Stav</th>
+            <th style="width: 36px;"></th>
+          </tr>
+        </thead>
+        <tbody id="sorterTableBody"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- Merge Confirmation Modal -->
+  <div class="merge-modal-overlay" id="mergeModal">
+    <div class="merge-modal">
+      <h2 id="mergeModalHeading">🔗 Zlúčiť vybrané obrazy?</h2>
+      <p>Všetky fotografie z označených albumov sa spoja do jedného. Klikni na kartu maľby, ktorej <strong>názov a titulnú fotku chceš zachovať</strong>.</p>
+      <p class="merge-hint">Fialový štítok <strong>HLAVNÝ</strong> = zachovaný názov, popis a primárna fotka.</p>
+
+      <div class="merge-grid-multi" id="mergeModalGrid">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <div class="merge-modal-actions">
+        <button class="btn-save-export" style="background:var(--bg-subtle);color:var(--text-main);border:1px solid var(--border-color);" onclick="closeMergeModal()">Zrušiť</button>
+        <button class="btn-merge-action visible" onclick="confirmMerge()">✅ Áno, zlúčiť albumy</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="artworks.js"></script>
+  <script>
+    const deletedIds = new Set(JSON.parse(localStorage.getItem("platenko_deleted_ids") || "[]"));
+    const customStored = localStorage.getItem("platenko_artworks_custom");
+    let baseList = [];
+    if (customStored) {
+      try {
+        const parsed = JSON.parse(customStored);
+        if (Array.isArray(parsed) && parsed.length > 0) baseList = parsed;
+      } catch (e) {}
+    }
+    if (baseList.length === 0) {
+      baseList = Array.isArray(artworksData) ? JSON.parse(JSON.stringify(artworksData)) : [];
+    }
+    let list = baseList.filter(item => !deletedIds.has(item.id));
+
+    const tbody = document.getElementById("sorterTableBody");
+    const totalCountEl = document.getElementById("totalCount");
+    const count2024El = document.getElementById("count2024");
+    const count2023El = document.getElementById("count2023");
+    const count2022El = document.getElementById("count2022");
+    const searchInput = document.getElementById("searchInput");
+    const exportBtn = document.getElementById("exportBtn");
+    const mergeBtn = document.getElementById("mergeBtn");
+    const mergeInfoBar = document.getElementById("mergeInfoBar");
+    const mergeModal = document.getElementById("mergeModal");
+
+    // Merge selection state
+    let mergeSelection = []; // array of selected IDs (can be 2, 3, 4+)
+    let mergePrimaryId = null; // which painting keeps title and cover
+
+    // ---- RENDER TABLE ----
+    function renderTable(searchTerm = "") {
+      tbody.innerHTML = "";
+
+      const filtered = list.filter(item => {
+        if (!searchTerm) return true;
+        const q = searchTerm.toLowerCase();
+        return (item.title || "").toLowerCase().includes(q) ||
+               (item.date || "").toLowerCase().includes(q) ||
+               (item.folder || "").toLowerCase().includes(q);
+      });
+
+      totalCountEl.textContent = list.length;
+      count2024El.textContent = list.filter(i => i.year === "2024").length;
+      count2023El.textContent = list.filter(i => i.year === "2023").length;
+      count2022El.textContent = list.filter(i => i.year === "2022").length;
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted);">Žiadne výsledky.</td></tr>`;
+        return;
+      }
+
+      filtered.forEach(art => {
+        const tr = document.createElement("tr");
+        const photosCount = art.photoCount || (art.detailImages ? art.detailImages.length : 1);
+        const isSelected = mergeSelection.includes(art.id);
+        if (isSelected) tr.classList.add("selected-for-merge");
+
+        const selLabel = isSelected ? "✓" : "☐";
+        const selClass = isSelected ? "merge-select-btn selected" : "merge-select-btn";
+
+        tr.innerHTML = `
+          <td style="text-align:center;">
+            <button class="${selClass}" onclick="toggleMergeSelect('${art.id}')" title="Vybrať pre zlúčenie">${selLabel}</button>
+          </td>
+          <td>
+            <a href="${art.coverImage}" target="_blank">
+              <img src="${art.coverImage}" class="thumb-preview" alt="Náhľad" loading="lazy">
+            </a>
+          </td>
+          <td>
+            <strong>${art.date || art.year}</strong>
+            <div style="font-size:0.72rem;color:var(--text-light);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${art.folder || ''}">${art.folder || ""}</div>
+          </td>
+          <td>
+            <input type="text" class="inline-edit-input" value="${art.title.replace(/"/g, '&quot;')}" onchange="updateTitle('${art.id}', this.value)">
+          </td>
+          <td>
+            <select class="status-select" onchange="updateTechnique('${art.id}', this.value)">
+              <option value="Pouring" ${art.technique === 'Pouring' ? 'selected' : ''}>Pouring</option>
+              <option value="Airbrush" ${art.technique === 'Airbrush' ? 'selected' : ''}>Airbrush</option>
+              <option value="Mixed" ${art.technique === 'Mixed' ? 'selected' : ''}>Mixed</option>
+              <option value="Brush" ${art.technique === 'Brush' ? 'selected' : ''}>Brush</option>
+            </select>
+          </td>
+          <td>
+            <span class="tag-badge">📷 ${photosCount}</span>
+          </td>
+          <td>
+            <select class="status-select" onchange="updateStatus('${art.id}', this.value)">
+              <option value="Available" ${art.status === 'Available' ? 'selected' : ''}>Dostupný</option>
+              <option value="Reserved" ${art.status === 'Reserved' ? 'selected' : ''}>Rezervovaný</option>
+              <option value="Sold" ${art.status === 'Sold' ? 'selected' : ''}>Predaný</option>
+            </select>
+          </td>
+          <td>
+            <button style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:1.05rem;" title="Odstrániť maľbu" onclick="removeItem('${art.id}')">✕</button>
+          </td>
+        `;
+
+        tbody.appendChild(tr);
+      });
+
+      updateMergeUI();
+    }
+
+    // ---- MERGE SELECTION ----
+    window.toggleMergeSelect = function(id) {
+      if (mergeSelection.includes(id)) {
+        mergeSelection = mergeSelection.filter(x => x !== id);
+        if (mergePrimaryId === id) {
+          mergePrimaryId = mergeSelection.length > 0 ? mergeSelection[0] : null;
+        }
+      } else {
+        mergeSelection.push(id);
+        if (!mergePrimaryId) {
+          mergePrimaryId = id;
+        }
+      }
+      renderTable(searchInput.value.trim());
+    };
+
+    window.clearMergeSelection = function() {
+      mergeSelection = [];
+      mergePrimaryId = null;
+      renderTable(searchInput.value.trim());
+    };
+
+    function updateMergeUI() {
+      const count = mergeSelection.length;
+      if (count > 0) {
+        mergeInfoBar.classList.add("visible");
+      } else {
+        mergeInfoBar.classList.remove("visible");
+      }
+
+      if (count >= 2) {
+        mergeBtn.classList.add("visible");
+        mergeBtn.textContent = `🔗 Zlúčiť vybrané (${count})`;
+      } else {
+        mergeBtn.classList.remove("visible");
+        mergeBtn.textContent = `🔗 Zlúčiť vybrané (${count})`;
+      }
+    }
+
+    // ---- MERGE MODAL ----
+    mergeBtn.addEventListener("click", () => {
+      if (mergeSelection.length < 2) return;
+      openMergeModal();
+    });
+
+    function openMergeModal() {
+      const grid = document.getElementById("mergeModalGrid");
+      const heading = document.getElementById("mergeModalHeading");
+      heading.textContent = `🔗 Zlúčiť ${mergeSelection.length} vybrané albumy do jedného?`;
+      grid.innerHTML = "";
+
+      if (!mergeSelection.includes(mergePrimaryId)) {
+        mergePrimaryId = mergeSelection[0];
+      }
+
+      mergeSelection.forEach(id => {
+        const art = list.find(i => i.id === id);
+        if (!art) return;
+
+        const isPrimary = art.id === mergePrimaryId;
+        const card = document.createElement("div");
+        card.className = `merge-preview-card ${isPrimary ? "pick-title" : ""}`;
+        card.innerHTML = `
+          ${isPrimary ? '<span class="merge-badge-primary">HLAVNÝ</span>' : ''}
+          <img src="${art.coverImage}" alt="${art.title}">
+          <strong>${art.title}</strong>
+          <span>${art.date || art.year}</span>
+          <span style="display:block;margin-top:4px;font-size:0.75rem;">📷 ${(art.detailImages || [art.coverImage]).length} fotiek</span>
+        `;
+
+        card.addEventListener("click", () => {
+          mergePrimaryId = art.id;
+          openMergeModal(); // Re-render preview cards
+        });
+
+        grid.appendChild(card);
+      });
+
+      mergeModal.classList.add("open");
+    }
+
+    window.closeMergeModal = function() {
+      mergeModal.classList.remove("open");
+    };
+
+    window.confirmMerge = function() {
+      if (mergeSelection.length < 2) return;
+
+      const primary = list.find(i => i.id === mergePrimaryId);
+      if (!primary) return;
+
+      // Combine and deduplicate photos across all selected albums
+      const combinedImages = [...(primary.detailImages || [primary.coverImage])];
+      const otherIds = mergeSelection.filter(id => id !== mergePrimaryId);
+
+      otherIds.forEach(otherId => {
+        const otherArt = list.find(i => i.id === otherId);
+        if (otherArt) {
+          const secondaryImages = otherArt.detailImages || [otherArt.coverImage];
+          secondaryImages.forEach(img => {
+            if (!combinedImages.includes(img)) {
+              combinedImages.push(img);
+            }
+          });
+        }
+      });
+
+      // Update primary artwork
+      primary.detailImages = combinedImages;
+      primary.photoCount = combinedImages.length;
+
+      // Remove other merged albums
+      otherIds.forEach(otherId => {
+        list = list.filter(i => i.id !== otherId);
+        deletedIds.add(otherId);
+      });
+
+      // Auto-save to localStorage so index.html gallery sees it instantly
+      localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
+      localStorage.setItem("platenko_artworks_custom", JSON.stringify(list, null, 2));
+
+      // Reset selection state
+      mergeSelection = [];
+      mergePrimaryId = null;
+
+      closeMergeModal();
+      renderTable(searchInput.value.trim());
+
+      // Visual pulse on primary row
+      setTimeout(() => {
+        const rows = tbody.querySelectorAll("tr");
+        rows.forEach(row => {
+          const input = row.querySelector("input.inline-edit-input");
+          if (input && input.value === primary.title) {
+            row.style.transition = "background 0.5s";
+            row.style.background = "rgba(34, 197, 94, 0.2)";
+            setTimeout(() => { row.style.background = ""; }, 2500);
+          }
+        });
+      }, 100);
+    };
+
+    // ---- EDIT HANDLERS ----
+    window.updateTitle = function(id, newTitle) {
+      const item = list.find(i => i.id === id);
+      if (item) item.title = newTitle;
+    };
+    window.updateTechnique = function(id, val) {
+      const item = list.find(i => i.id === id);
+      if (item) item.technique = val;
+    };
+    window.updateStatus = function(id, val) {
+      const item = list.find(i => i.id === id);
+      if (item) item.status = val;
+    };
+    window.removeItem = function(id) {
+      const item = list.find(i => i.id === id);
+      if (confirm(`Naozaj chceš odstrániť „${item.title}"?`)) {
+        list = list.filter(i => i.id !== id);
+        mergeSelection = mergeSelection.filter(x => x !== id);
+        deletedIds.add(id);
+        localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
+        renderTable(searchInput.value.trim());
+      }
+    };
+
+    // ---- SEARCH & SAVE ----
+    searchInput.addEventListener("input", e => renderTable(e.target.value.trim()));
+
+    exportBtn.addEventListener("click", () => {
+      // Save merged list to localStorage
+      localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
+      localStorage.setItem("platenko_artworks_custom", JSON.stringify(list, null, 2));
+
+      const orig = exportBtn.innerHTML;
+      exportBtn.innerHTML = `✓ Zmeny uložené!`;
+      exportBtn.style.backgroundColor = "#16a34a";
+      setTimeout(() => { exportBtn.innerHTML = orig; exportBtn.style.backgroundColor = ""; }, 2500);
+    });
+
+    // Close modal on overlay click
+    mergeModal.addEventListener("click", e => { if (e.target === mergeModal) closeMergeModal(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") closeMergeModal(); });
+
+    // ---- THEME ----
+    const themeBtn = document.getElementById("themeToggle");
+    const savedTheme = localStorage.getItem("platenko_theme") || "light";
+    document.documentElement.setAttribute("data-theme", savedTheme);
+    themeBtn.innerHTML = savedTheme === "dark" ? "☀️ <span>Svetlý</span>" : "🌙 <span>Tmavý</span>";
+    themeBtn.addEventListener("click", () => {
+      const cur = document.documentElement.getAttribute("data-theme");
+      const next = cur === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("platenko_theme", next);
+      themeBtn.innerHTML = next === "dark" ? "☀️ <span>Svetlý</span>" : "🌙 <span>Tmavý</span>";
+    });
+
+    renderTable();
+  </script>
+</body>
+</html>

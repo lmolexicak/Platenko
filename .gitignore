@@ -1,0 +1,15 @@
+# Dependencies and system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Scratch and temporary files
+_test*
+*.tmp
+*.log
+
+# Sensitive scripts with API keys
+*.ps1
+
+# Do not track painting photos on GitHub (they will be served from Cloudflare R2 / Storage)
+images/paintings/

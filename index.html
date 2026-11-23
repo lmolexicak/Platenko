@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plátenko | Fluid Art, Airbrush & Contemporary Acrylics</title>
+  <meta name="description" content="Portfolio of original canvas paintings using acrylic pouring, airbrushing, and contemporary brush techniques by Platenko.">
+  <link rel="icon" type="image/png" href="images/logo_only_IG_transparent.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Sticky Header -->
+  <header>
+    <div class="container nav-inner">
+      <a href="#" class="brand">
+        <!-- Logo Image -->
+        <img 
+          id="mainLogo"
+          src="images/logo_only_IG_transparent.png" 
+          alt="Plátenko Logo" 
+          class="brand-logo"
+          onerror="this.style.display='none';"
+        >
+        <div class="brand-text">
+          <span class="brand-title">Plátenko</span>
+          <span class="brand-subtitle">Original Canvas Artworks</span>
+        </div>
+      </a>
+      <div class="nav-actions">
+        <a href="sorter.html" class="theme-toggle-btn" style="text-decoration: none;" title="Tabuľkový organizér a premenovanie malieb">
+          📋 <span>Organizér</span>
+        </a>
+        <button id="adminToggleBtn" class="theme-toggle-btn" title="Zapnúť / Vypnúť vizuálny Admin mód pre mazanie">
+          🛠️ <span>Admin mód</span>
+        </button>
+        <button id="themeToggle" class="theme-toggle-btn" title="Prepnúť svetlý / tmavý režim">
+          🌙 <span>Tmavý</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Admin Mode Action Banner -->
+  <div class="admin-banner" id="adminBanner">
+    <div class="admin-banner-info">
+      <span class="admin-banner-badge">Admin Mód</span>
+      <span>Kliknutím na <strong>✕</strong> v rohu maľby ju vymažeš.</span>
+      <span>(Vymazaných: <strong id="adminDeletedCount">0</strong>)</span>
+    </div>
+    <div class="admin-banner-actions">
+      <button id="adminUndoBtn" class="btn-admin-action" title="Obnoviť poslednú vymazanú maľbu">↩️ Vrátiť späť</button>
+      <button id="adminExportBtn" class="btn-admin-save" title="Uložiť vykonané zmeny">💾 Uložiť zmeny</button>
+      <button id="adminExitBtn" class="btn-admin-action" title="Ukončiť administrátorský režim">Ukončiť Admin</button>
+    </div>
+  </div>
+
+  <main class="container">
+    <!-- Hero / Intro -->
+    <section class="hero">
+      <h1>Originálne maľby na plátne</h1>
+      <p>Tekutý akryl, holandský pour, jemné prechody airbrushom a detailné textúry od Plátenko.</p>
+      
+      <!-- Filter Bar -->
+      <div class="filter-bar">
+        <button class="filter-btn active" data-filter="all">Všetky maľby (207)</button>
+        <button class="filter-btn" data-filter="2024">Rok 2024</button>
+        <button class="filter-btn" data-filter="2023">Rok 2023</button>
+        <button class="filter-btn" data-filter="2022">Rok 2022</button>
+        <button class="filter-btn" data-filter="multi">Série s detailmi (3+)</button>
+        <button class="filter-btn" data-filter="available">Dostupné kúsky</button>
+      </div>
+    </section>
+
+    <!-- Gallery Grid -->
+    <section class="gallery-grid" id="galleryGrid">
+      <!-- Artworks will be populated dynamically from artworks.js -->
+    </section>
+
+    <!-- Load More Container -->
+    <div class="load-more-container" id="loadMoreWrap">
+      <button id="loadMoreBtn" class="load-more-btn">Zobraziť ďalšie maľby (+24)</button>
+    </div>
+
+    <!-- About Section -->
+    <section class="about-section">
+      <div class="about-grid">
+        <div class="about-intro">
+          <h2>About the Craft</h2>
+          <p>
+            Every canvas is a fusion of organic fluidity and deliberate control. Using acrylic pouring methods, pigments naturally interact, flow, and create unique organic cells and textures. Airbrushing and brushwork then introduce depth, light, and sharp contrasting forms.
+          </p>
+          <a href="https://www.instagram.com/platenko.akryl" target="_blank" rel="noopener noreferrer" class="social-link">
+            Follow on Instagram @platenko.akryl ↗
+          </a>
+        </div>
+        <div class="about-stats" style="color: var(--text-muted); font-size: 0.95rem;">
+          <p style="margin-bottom: 12px;"><strong>Commission Requests:</strong> Have a specific color palette, size, or technique in mind? Custom commissions are welcomed.</p>
+          <p><strong>Shipping & Delivery:</strong> Stretched canvas artworks are carefully varnished with UV protection and packaged securely for worldwide delivery.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Edit Artwork Modal (Admin) -->
+  <div class="modal-overlay" id="editModal" role="dialog" aria-modal="true">
+    <div class="edit-modal-box">
+      <button class="modal-close-btn" id="editModalCloseBtn" aria-label="Zavrieť">✕</button>
+
+      <div style="display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 14px;">
+        <h2 style="font-size: 1.45rem; margin: 0;">✏️ Upraviť album maľby</h2>
+        <span id="editModalFolderHint" style="font-size: 0.8rem; color: var(--text-muted); font-family: monospace;"></span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+
+        <!-- 1. Riadok: Názov (plná šírka) -->
+        <div>
+          <label class="edit-label">Názov maľby</label>
+          <input type="text" id="editTitle" class="edit-input" placeholder="Zadaj názov diela...">
+        </div>
+
+        <!-- 2. Riadok: Popis / Story (veľký textarea na plnú šírku) -->
+        <div>
+          <label class="edit-label">Popis / Príbeh diela</label>
+          <textarea id="editDescription" class="edit-input" rows="5" placeholder="Napíš príbeh, popis techniky, myšlienku za maľbou..."></textarea>
+        </div>
+
+        <!-- 3. Riadok: Technika, Stav, Rozmery, Materiál (4 stĺpce vedľa seba) -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px;">
+          <div>
+            <label class="edit-label">Technika</label>
+            <select id="editTechnique" class="edit-select">
+              <option value="Pouring">Pouring</option>
+              <option value="Airbrush">Airbrush</option>
+              <option value="Mixed">Mixed</option>
+              <option value="Brush">Brush</option>
+            </select>
+          </div>
+          <div>
+            <label class="edit-label">Stav predaja</label>
+            <select id="editStatus" class="edit-select">
+              <option value="Available">Dostupná</option>
+              <option value="Reserved">Rezervovaná</option>
+              <option value="Sold">Predaná</option>
+            </select>
+          </div>
+          <div>
+            <label class="edit-label">Rozmery</label>
+            <input type="text" id="editDimensions" class="edit-input" placeholder="50 × 70 cm">
+          </div>
+          <div>
+            <label class="edit-label">Materiál / Medium</label>
+            <input type="text" id="editMedium" class="edit-input" placeholder="Akryl na plátne">
+          </div>
+        </div>
+
+        <!-- 4. Riadok: Fotky albumu -->
+        <div style="background: var(--bg-subtle); padding: 18px; border-radius: 12px; border: 1px solid var(--border-color);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <label class="edit-label" style="margin: 0;">Fotografie v albume <span id="editPhotoCount" style="font-weight: normal; color: var(--text-muted);"></span></label>
+              <span style="font-size: 0.78rem; color: var(--text-muted);">💡 Kliknutím na fotku ju zvolíš ako <strong>Titulnú (Cover)</strong></span>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="file" id="coverUploadInput" accept="image/*" style="display: none;">
+              <button type="button" id="openCoverStudioBtn" class="btn-secondary" style="padding: 6px 14px; font-size: 0.82rem; background: rgba(99, 102, 241, 0.1); border-color: #6366f1; color: #6366f1; font-weight: 600;">
+                ✨ Vytvoriť 3D Cover efekt
+              </button>
+            </div>
+          </div>
+          <div id="editPhotoGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); gap: 12px; margin-top: 8px;"></div>
+        </div>
+
+      </div>
+
+      <!-- Spodná lišta s tlačidlami -->
+      <div class="edit-modal-footer">
+        <button class="btn-secondary" id="editModalCancelBtn">Zrušiť</button>
+        <button class="btn-edit-save" id="editModalSaveBtn">💾 Uložiť zmeny</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3D Cover Mockup Studio Modal -->
+  <div class="modal-overlay" id="coverStudioModal" role="dialog" aria-modal="true" style="z-index: 9999;">
+    <div class="edit-modal-box" style="max-width: 1040px; height: 92vh; display: flex; flex-direction: column;">
+      <button class="modal-close-btn" id="coverStudioCloseBtn" aria-label="Zavrieť">✕</button>
+
+      <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; flex-shrink: 0;">
+        <div>
+          <h2 style="font-size: 1.35rem; margin: 0;">✨ 3D Cover Studio</h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin: 4px 0 0;">
+            1. Potiahni 4 farebné rohy na okraje maľby &nbsp;|&nbsp; 2. Výsledok vpravo sa prepočíta v reálnom čase
+          </p>
+        </div>
+      </div>
+
+      <!-- Editor Columns -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; min-height: 0; margin-bottom: 14px;">
+        <!-- Left: Corner Pinning Canvas -->
+        <div style="display: flex; flex-direction: column; height: 100%;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0;">
+            <span style="font-size: 0.82rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted);">Pôvodná fotka (uprav rohy)</span>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" id="detectCornersBtn" class="btn-secondary" style="padding: 4px 10px; font-size: 0.78rem; background: rgba(99, 102, 241, 0.15); color: #6366f1; border-color: #6366f1;">🤖 Automatické rohy</button>
+              <button type="button" id="resetCornersBtn" class="btn-secondary" style="padding: 4px 10px; font-size: 0.78rem;">Reset rohov</button>
+            </div>
+          </div>
+          <div style="flex: 1; position: relative; background: #09090b; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; min-height: 0;">
+            <canvas id="pinningCanvas" style="max-width: 100%; max-height: 100%; object-fit: contain; display: block; cursor: crosshair;"></canvas>
+          </div>
+        </div>
+
+        <!-- Right: Generated 3D Preview -->
+        <div style="display: flex; flex-direction: column; height: 100%;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0;">
+            <span style="font-size: 0.82rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted);">Výsledný 3D Cover</span>
+            <span style="font-size: 0.78rem; color: #22c55e; font-weight: 600;">● Živý náhľad</span>
+          </div>
+          <div style="flex: 1; position: relative; background: #09090b; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; min-height: 0;">
+            <canvas id="previewCanvas" style="max-width: 100%; max-height: 100%; object-fit: contain; display: block;"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer Actions (Always visible at bottom) -->
+      <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding-top: 14px; border-top: 1px solid var(--border-color); flex-shrink: 0;">
+        <button type="button" class="btn-secondary" id="coverStudioCancelBtn" style="padding: 10px 20px;">Zrušiť</button>
+        <button type="button" class="btn-edit-save" id="applyCoverBtn" style="padding: 10px 22px; font-size: 0.95rem; font-weight: 700;">
+          ✨ Použiť ako Titulnú fotku (Cover)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Artwork Detail Modal (Lightbox) -->
+  <div class="modal-overlay" id="artworkModal" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <button class="modal-close-btn" id="modalCloseBtn" aria-label="Close modal">✕</button>
+      
+      <!-- Left: Visuals & Thumbnails -->
+      <div class="modal-visuals">
+        <div class="modal-main-image modal-main-image-wrap">
+          <button class="modal-nav-arrow prev" id="modalPrevBtn" title="Predchádzajúca fotka">‹</button>
+          <img id="modalMainImage" src="" alt="Detail maľby">
+          <button class="modal-nav-arrow next" id="modalNextBtn" title="Ďalšia fotka">›</button>
+        </div>
+        <div class="modal-thumbs" id="modalThumbs">
+          <!-- Thumbnails populated dynamically -->
+        </div>
+      </div>
+
+      <!-- Right: Artwork Specs & Inquiry -->
+      <div class="modal-info">
+        <div class="modal-meta-top">
+          <span id="modalYear" style="color: var(--text-light); font-size: 0.85rem; font-weight: 500;"></span>
+          <span id="modalStatus" class="card-badge"></span>
+        </div>
+        
+        <h2 id="modalTitle" class="modal-title"></h2>
+        <p id="modalMedium" style="color: var(--text-muted); font-size: 0.92rem; margin-bottom: 12px;"></p>
+        
+        <div class="modal-specs">
+          <div class="spec-item">
+            <span>Dimensions</span>
+            <strong id="modalDimensions"></strong>
+          </div>
+          <div class="spec-item">
+            <span>Surface</span>
+            <strong>Stretched Canvas</strong>
+          </div>
+        </div>
+
+        <p id="modalDescription" class="modal-desc"></p>
+
+        <div class="modal-actions">
+          <button id="modalInquireBtn" class="btn-primary">
+            Inquire About This Piece
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="container">
+    <p>© 2026 Platenko. All rights reserved. Original art by @platenko.akryl</p>
+  </footer>
+
+  <!-- Scripts -->
+  <script src="artworks.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
