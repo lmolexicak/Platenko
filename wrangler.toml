@@ -1,0 +1,19 @@
+name = "platenko"
+main = "worker.js"
+compatibility_date = "2026-11-23"
+
+# Cloudflare D1 SQL Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "platenko-db"
+database_id = "e32573f5-4c97-48af-9b2b-31acaa3a2447"
+
+# Cloudflare R2 Storage binding for images
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "platenko-photos"
+
+# Serve static assets (HTML, CSS, JS)
+[assets]
+directory = "./"
+run_worker_first = false

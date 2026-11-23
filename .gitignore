@@ -8,8 +8,9 @@ _test*
 *.tmp
 *.log
 
-# Sensitive scripts with API keys
+# Sensitive scripts with API keys and secrets
 *.ps1
+.env*
 
 # Do not track painting photos on GitHub (they will be served from Cloudflare R2 / Storage)
 images/paintings/
