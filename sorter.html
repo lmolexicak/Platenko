@@ -151,18 +151,8 @@
   <script src="artworks.js"></script>
   <script>
     const deletedIds = new Set(JSON.parse(localStorage.getItem("platenko_deleted_ids") || "[]"));
-    const customStored = localStorage.getItem("platenko_artworks_custom");
-    let baseList = [];
-    if (customStored) {
-      try {
-        const parsed = JSON.parse(customStored);
-        if (Array.isArray(parsed) && parsed.length > 0) baseList = parsed;
-      } catch (e) {}
-    }
-    if (baseList.length === 0) {
-      baseList = Array.isArray(artworksData) ? JSON.parse(JSON.stringify(artworksData)) : [];
-    }
-    let list = baseList.filter(item => !deletedIds.has(item.id));
+    let usingCloudAPI = false;
+    let list = [];
 
     const tbody = document.getElementById("sorterTableBody");
     const totalCountEl = document.getElementById("totalCount");
@@ -178,6 +168,52 @@
     // Merge selection state
     let mergeSelection = []; // array of selected IDs (can be 2, 3, 4+)
     let mergePrimaryId = null; // which painting keeps title and cover
+
+    async function loadFromAPI() {
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted);">⏳ Načítavam zoznam malieb…</td></tr>`;
+      try {
+        const resp = await fetch("/api/artworks");
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const data = await resp.json();
+        if (Array.isArray(data) && data.length > 0) {
+          usingCloudAPI = true;
+          list = data;
+          renderTable(searchInput.value.trim());
+          return;
+        }
+        throw new Error("Empty API response");
+      } catch (err) {
+        console.warn("API load failed, falling back to local data:", err);
+        usingCloudAPI = false;
+        const customStored = localStorage.getItem("platenko_artworks_custom");
+        let baseList = [];
+        if (customStored) {
+          try {
+            const parsed = JSON.parse(customStored);
+            if (Array.isArray(parsed) && parsed.length > 0) baseList = parsed;
+          } catch (e) {}
+        }
+        if (baseList.length === 0) {
+          baseList = Array.isArray(artworksData) ? JSON.parse(JSON.stringify(artworksData)) : [];
+        }
+        list = baseList.filter(item => !deletedIds.has(item.id));
+        renderTable(searchInput.value.trim());
+      }
+    }
+
+    async function persistItem(id, payload) {
+      if (!usingCloudAPI) return;
+      try {
+        const resp = await fetch(`/api/artworks/${encodeURIComponent(id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+      } catch (err) {
+        console.warn("D1 update failed:", err);
+      }
+    }
 
     // ---- RENDER TABLE ----
     function renderTable(searchTerm = "") {
@@ -340,15 +376,16 @@
       mergeModal.classList.remove("open");
     };
 
-    window.confirmMerge = function() {
+    window.confirmMerge = async function() {
       if (mergeSelection.length < 2) return;
 
-      const primary = list.find(i => i.id === mergePrimaryId);
+      const targetPrimaryId = mergePrimaryId;
+      const primary = list.find(i => i.id === targetPrimaryId);
       if (!primary) return;
 
       // Combine and deduplicate photos across all selected albums
       const combinedImages = [...(primary.detailImages || [primary.coverImage])];
-      const otherIds = mergeSelection.filter(id => id !== mergePrimaryId);
+      const otherIds = mergeSelection.filter(id => id !== targetPrimaryId);
 
       otherIds.forEach(otherId => {
         const otherArt = list.find(i => i.id === otherId);
@@ -369,12 +406,33 @@
       // Remove other merged albums
       otherIds.forEach(otherId => {
         list = list.filter(i => i.id !== otherId);
-        deletedIds.add(otherId);
+        if (!usingCloudAPI) deletedIds.add(otherId);
       });
 
-      // Auto-save to localStorage so index.html gallery sees it instantly
-      localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
-      localStorage.setItem("platenko_artworks_custom", JSON.stringify(list, null, 2));
+      if (usingCloudAPI) {
+        try {
+          const resp = await fetch("/api/artworks/merge", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              primaryId: targetPrimaryId,
+              mergeIds: otherIds
+            })
+          });
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+          const merged = await resp.json();
+          if (merged && Array.isArray(merged.detailImages)) {
+            primary.detailImages = merged.detailImages;
+            primary.photoCount = merged.photoCount ?? merged.detailImages.length;
+          }
+        } catch (err) {
+          console.warn("D1 merge failed:", err);
+        }
+      } else {
+        // Offline fallback: auto-save to localStorage
+        localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
+        localStorage.setItem("platenko_artworks_custom", JSON.stringify(list, null, 2));
+      }
 
       // Reset selection state
       mergeSelection = [];
@@ -400,23 +458,42 @@
     // ---- EDIT HANDLERS ----
     window.updateTitle = function(id, newTitle) {
       const item = list.find(i => i.id === id);
-      if (item) item.title = newTitle;
+      if (item) {
+        item.title = newTitle;
+        persistItem(id, { title: newTitle });
+      }
     };
     window.updateTechnique = function(id, val) {
       const item = list.find(i => i.id === id);
-      if (item) item.technique = val;
+      if (item) {
+        item.technique = val;
+        persistItem(id, { technique: val });
+      }
     };
     window.updateStatus = function(id, val) {
       const item = list.find(i => i.id === id);
-      if (item) item.status = val;
+      if (item) {
+        item.status = val;
+        persistItem(id, { status: val });
+      }
     };
-    window.removeItem = function(id) {
+    window.removeItem = async function(id) {
       const item = list.find(i => i.id === id);
+      if (!item) return;
       if (confirm(`Naozaj chceš odstrániť „${item.title}"?`)) {
         list = list.filter(i => i.id !== id);
         mergeSelection = mergeSelection.filter(x => x !== id);
-        deletedIds.add(id);
-        localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
+        if (usingCloudAPI) {
+          try {
+            const resp = await fetch(`/api/artworks/${encodeURIComponent(id)}`, { method: "DELETE" });
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+          } catch (err) {
+            console.warn("D1 delete failed:", err);
+          }
+        } else {
+          deletedIds.add(id);
+          localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
+        }
         renderTable(searchInput.value.trim());
       }
     };
@@ -425,12 +502,14 @@
     searchInput.addEventListener("input", e => renderTable(e.target.value.trim()));
 
     exportBtn.addEventListener("click", () => {
-      // Save merged list to localStorage
-      localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
-      localStorage.setItem("platenko_artworks_custom", JSON.stringify(list, null, 2));
+      if (!usingCloudAPI) {
+        // Offline fallback: save merged list to localStorage
+        localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
+        localStorage.setItem("platenko_artworks_custom", JSON.stringify(list, null, 2));
+      }
 
       const orig = exportBtn.innerHTML;
-      exportBtn.innerHTML = `✓ Zmeny uložené!`;
+      exportBtn.innerHTML = usingCloudAPI ? `✓ Uložené v cloude!` : `✓ Zmeny uložené!`;
       exportBtn.style.backgroundColor = "#16a34a";
       setTimeout(() => { exportBtn.innerHTML = orig; exportBtn.style.backgroundColor = ""; }, 2500);
     });
@@ -452,7 +531,7 @@
       themeBtn.innerHTML = next === "dark" ? "☀️ <span>Svetlý</span>" : "🌙 <span>Tmavý</span>";
     });
 
-    renderTable();
+    loadFromAPI();
   </script>
 </body>
 </html>

@@ -88,7 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function updateAdminStats() {
     if (adminDeletedCountEl) {
-      adminDeletedCountEl.textContent = deletedIds.size;
+      adminDeletedCountEl.textContent = _usingCloudAPI ? undoStack.length : deletedIds.size;
     }
     if (adminUndoBtn) {
       adminUndoBtn.disabled = undoStack.length === 0;
@@ -108,8 +108,35 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (adminUndoBtn) {
-    adminUndoBtn.addEventListener("click", () => {
+    adminUndoBtn.addEventListener("click", async () => {
       if (undoStack.length === 0) return;
+
+      if (_usingCloudAPI) {
+        const restoredArt = undoStack.pop();
+        if (restoredArt && restoredArt.id) {
+          if (!_masterArtworksList) _masterArtworksList = [];
+          if (!_masterArtworksList.some(a => a.id === restoredArt.id)) {
+            _masterArtworksList.push(restoredArt);
+            _masterArtworksList.sort((a, b) =>
+              (b.date || "").localeCompare(a.date || "") || (b.id || "").localeCompare(a.id || "")
+            );
+          }
+          try {
+            const resp = await fetch("/api/artworks", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(restoredArt)
+            });
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+          } catch (err) {
+            console.warn("D1 restore failed:", err);
+          }
+        }
+        updateAdminStats();
+        applyFilter(activeFilter);
+        return;
+      }
+
       const restoredId = undoStack.pop();
       deletedIds.delete(restoredId);
       localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
@@ -120,7 +147,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (adminExportBtn) {
     adminExportBtn.addEventListener("click", () => {
-      // Uloženie stavu do pamäte prehliadača
+      if (_usingCloudAPI) {
+        updateAdminStats();
+        const origText = adminExportBtn.innerHTML;
+        adminExportBtn.innerHTML = `✓ Všetko je uložené v cloude!`;
+        adminExportBtn.style.backgroundColor = "#16a34a";
+
+        setTimeout(() => {
+          adminExportBtn.innerHTML = origText;
+          adminExportBtn.style.backgroundColor = "";
+        }, 2000);
+        return;
+      }
+
+      // Uloženie stavu do pamäte prehliadača (offline fallback)
       localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
       updateAdminStats();
 
@@ -139,8 +179,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // 3. Data Access — loads from API (D1 database), falls back to artworksData
   // Master list fetched once from /api/artworks
   let _masterArtworksList = null;
+  let _usingCloudAPI = false;
 
   function getArtworksList() {
+    if (_usingCloudAPI) {
+      return _masterArtworksList || [];
+    }
     const base = _masterArtworksList || [];
     return base
       .filter(item => !deletedIds.has(item.id))
@@ -166,11 +210,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await resp.json();
       if (Array.isArray(data) && data.length > 0) {
         _masterArtworksList = data;
+        _usingCloudAPI = true;
       } else {
         throw new Error("Empty API response");
       }
     } catch (err) {
       console.warn("API load failed, falling back to artworksData:", err);
+      _usingCloudAPI = false;
       // Fallback: use hardcoded artworks.js if API fails
       _masterArtworksList = (typeof artworksData !== "undefined" && Array.isArray(artworksData))
         ? artworksData : [];
@@ -292,15 +338,32 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!confirm(`Naozaj chceš vymazať maľbu "${art.title}"?`)) return;
 
     cardEl.classList.add("deleting");
-    
-    setTimeout(() => {
+
+    setTimeout(async () => {
       cardEl.remove();
-      deletedIds.add(art.id);
-      undoStack.push(art.id);
-      localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
-      
+
+      if (_usingCloudAPI) {
+        undoStack.push(JSON.parse(JSON.stringify(art)));
+        if (_masterArtworksList) {
+          _masterArtworksList = _masterArtworksList.filter(item => item.id !== art.id);
+        }
+        try {
+          const resp = await fetch(`/api/artworks/${encodeURIComponent(art.id)}`, {
+            method: "DELETE"
+          });
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+        } catch (err) {
+          console.warn("D1 delete failed:", err);
+        }
+      } else {
+        deletedIds.add(art.id);
+        undoStack.push(art.id);
+        localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
+      }
+
       // Update in-memory filtered list
       currentFilteredList = currentFilteredList.filter(item => item.id !== art.id);
+      displayedCount = Math.max(0, displayedCount - 1);
       updateAdminStats();
       updateFilterCounts(getArtworksList());
 
@@ -521,6 +584,9 @@ document.addEventListener("DOMContentLoaded", () => {
   async function saveEditModal() {
     if (!editingArtId) return;
 
+    const targetId = editingArtId;
+    const photosSnapshot = [...editPhotos];
+
     const updates = {
       title: document.getElementById("editTitle").value.trim(),
       description: document.getElementById("editDescription").value.trim(),
@@ -528,50 +594,67 @@ document.addEventListener("DOMContentLoaded", () => {
       status: document.getElementById("editStatus").value,
       dimensions: document.getElementById("editDimensions").value.trim(),
       medium: document.getElementById("editMedium").value.trim(),
-      coverImage: editPhotos[0],
-      detailImages: [...editPhotos],
-      photoCount: editPhotos.length,
+      coverImage: photosSnapshot[0],
+      detailImages: [...photosSnapshot],
+      photoCount: photosSnapshot.length,
     };
 
     // Update in-memory master list immediately (optimistic UI)
     if (_masterArtworksList) {
-      const idx = _masterArtworksList.findIndex(a => a.id === editingArtId);
+      const idx = _masterArtworksList.findIndex(a => a.id === targetId);
       if (idx !== -1) {
         _masterArtworksList[idx] = Object.assign({}, _masterArtworksList[idx], updates);
       }
     }
 
-    // Also keep local customEdits as cache
-    customEdits[editingArtId] = updates;
-    localStorage.setItem("platenko_custom_edits", JSON.stringify(customEdits));
+    if (!_usingCloudAPI) {
+      customEdits[targetId] = updates;
+      localStorage.setItem("platenko_custom_edits", JSON.stringify(customEdits));
+    }
 
     closeEditModal();
     applyFilter(activeFilter);
 
-    // Persist to D1 via API in background
-    try {
-      const resp = await fetch(`/api/artworks/${encodeURIComponent(editingArtId)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: updates.title,
-          description: updates.description,
-          technique: updates.technique,
-          status: updates.status,
-          dimensions: updates.dimensions,
-          medium: updates.medium,
-        })
-      });
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
-      console.log("Saved to D1 OK:", editingArtId);
-    } catch (err) {
-      console.warn("D1 save failed (cached locally):", err);
+    // Persist to D1 + R2 via API
+    if (_usingCloudAPI) {
+      try {
+        const resp = await fetch(`/api/artworks/${encodeURIComponent(targetId)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: updates.title,
+            description: updates.description,
+            technique: updates.technique,
+            status: updates.status,
+            dimensions: updates.dimensions,
+            medium: updates.medium,
+            coverImage: updates.coverImage,
+            detailImages: updates.detailImages
+          })
+        });
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const resData = await resp.json();
+        if (resData && resData.coverImage && _masterArtworksList) {
+          const idx = _masterArtworksList.findIndex(a => a.id === targetId);
+          if (idx !== -1) {
+            _masterArtworksList[idx] = Object.assign({}, _masterArtworksList[idx], {
+              coverImage: resData.coverImage,
+              detailImages: resData.detailImages || _masterArtworksList[idx].detailImages,
+              photoCount: resData.photoCount ?? (resData.detailImages ? resData.detailImages.length : _masterArtworksList[idx].photoCount)
+            });
+            applyFilter(activeFilter);
+          }
+        }
+        console.log("Saved to D1 OK:", targetId);
+      } catch (err) {
+        console.warn("D1 save failed:", err);
+      }
     }
 
     // Flash confirm
     if (adminExportBtn) {
       const orig = adminExportBtn.innerHTML;
-      adminExportBtn.innerHTML = `✓ Zmeny uložené!`;
+      adminExportBtn.innerHTML = _usingCloudAPI ? `✓ Uložené v cloude!` : `✓ Zmeny uložené!`;
       adminExportBtn.style.backgroundColor = "#16a34a";
       setTimeout(() => {
         adminExportBtn.innerHTML = orig;

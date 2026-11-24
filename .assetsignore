@@ -1,0 +1,8 @@
+worker.js
+wrangler.toml
+README.md
+*.ps1
+*.sql
+.env*
+.git
+.gitignore
