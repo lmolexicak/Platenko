@@ -870,6 +870,10 @@ header {
   padding-right: 44px;
 }
 
+.modal-meta-top .card-badge {
+  position: static;
+}
+
 .modal-title {
   font-size: 1.8rem;
   font-weight: 700;
