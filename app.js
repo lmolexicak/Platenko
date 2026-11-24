@@ -136,30 +136,49 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 3. Data Access (Prefers custom list from localStorage, applies deletions and edits)
-  function getArtworksList() {
-    const customStored = localStorage.getItem("platenko_artworks_custom");
-    let baseList = [];
-    if (customStored) {
-      try {
-        const parsed = JSON.parse(customStored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          baseList = parsed;
-        }
-      } catch (e) {
-        console.error("Error parsing platenko_artworks_custom", e);
-      }
-    }
-    if (baseList.length === 0) {
-      baseList = (typeof artworksData !== "undefined" && Array.isArray(artworksData)) ? artworksData : [];
-    }
+  // 3. Data Access — loads from API (D1 database), falls back to artworksData
+  // Master list fetched once from /api/artworks
+  let _masterArtworksList = null;
 
-    return baseList
+  function getArtworksList() {
+    const base = _masterArtworksList || [];
+    return base
       .filter(item => !deletedIds.has(item.id))
       .map(item => {
         const edits = customEdits[item.id];
         return edits ? Object.assign({}, item, edits) : item;
       });
+  }
+
+  async function loadArtworksFromAPI() {
+    // Show loading indicator
+    if (galleryGrid) {
+      galleryGrid.innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:80px 0;color:var(--text-muted);">
+          <div style="font-size:2rem;margin-bottom:12px;">⏳</div>
+          <p>Načítavam galériu…</p>
+        </div>`;
+    }
+
+    try {
+      const resp = await fetch("/api/artworks");
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      if (Array.isArray(data) && data.length > 0) {
+        _masterArtworksList = data;
+      } else {
+        throw new Error("Empty API response");
+      }
+    } catch (err) {
+      console.warn("API load failed, falling back to artworksData:", err);
+      // Fallback: use hardcoded artworks.js if API fails
+      _masterArtworksList = (typeof artworksData !== "undefined" && Array.isArray(artworksData))
+        ? artworksData : [];
+    }
+
+    // Render after data is ready
+    updateAdminStats();
+    applyFilter("all");
   }
 
   // 4. Render Gallery with Pagination & Delete Buttons
@@ -499,7 +518,7 @@ document.addEventListener("DOMContentLoaded", () => {
     editPhotos = [];
   }
 
-  function saveEditModal() {
+  async function saveEditModal() {
     if (!editingArtId) return;
 
     const updates = {
@@ -514,16 +533,42 @@ document.addEventListener("DOMContentLoaded", () => {
       photoCount: editPhotos.length,
     };
 
-    // Save to customEdits
+    // Update in-memory master list immediately (optimistic UI)
+    if (_masterArtworksList) {
+      const idx = _masterArtworksList.findIndex(a => a.id === editingArtId);
+      if (idx !== -1) {
+        _masterArtworksList[idx] = Object.assign({}, _masterArtworksList[idx], updates);
+      }
+    }
+
+    // Also keep local customEdits as cache
     customEdits[editingArtId] = updates;
     localStorage.setItem("platenko_custom_edits", JSON.stringify(customEdits));
 
     closeEditModal();
-
-    // Refresh gallery
     applyFilter(activeFilter);
 
-    // Flash confirm on admin banner save button
+    // Persist to D1 via API in background
+    try {
+      const resp = await fetch(`/api/artworks/${encodeURIComponent(editingArtId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: updates.title,
+          description: updates.description,
+          technique: updates.technique,
+          status: updates.status,
+          dimensions: updates.dimensions,
+          medium: updates.medium,
+        })
+      });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      console.log("Saved to D1 OK:", editingArtId);
+    } catch (err) {
+      console.warn("D1 save failed (cached locally):", err);
+    }
+
+    // Flash confirm
     if (adminExportBtn) {
       const orig = adminExportBtn.innerHTML;
       adminExportBtn.innerHTML = `✓ Zmeny uložené!`;
@@ -1054,7 +1099,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ============================================================
 
-  // Initial load
-  updateAdminStats();
-  applyFilter("all");
+  // Initial load — fetch from API first
+  loadArtworksFromAPI();
 });
