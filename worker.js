@@ -672,7 +672,7 @@ export default {
             await env.DB.batch(stmts);
 
             const removedUrls = oldUrls.filter((u) => !resolvedImages.includes(u));
-            deletedKeys = await deleteUnusedR2Images(env, removedUrls);
+            deletedKeys = await deleteUnusedR2Images(removedUrls);
           }
         }
 
@@ -719,7 +719,7 @@ export default {
           env.DB.prepare(`DELETE FROM artworks WHERE id = ?`).bind(id),
         ]);
 
-        const deletedKeys = await deleteUnusedR2Images(env, candidateUrls);
+        const deletedKeys = await deleteUnusedR2Images(candidateUrls);
 
         return jsonResponse({
           success: true,
