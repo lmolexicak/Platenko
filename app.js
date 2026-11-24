@@ -13,9 +13,25 @@ document.addEventListener("DOMContentLoaded", () => {
   const modalPrevBtn = document.getElementById("modalPrevBtn");
   const modalNextBtn = document.getElementById("modalNextBtn");
 
-  // Admin Mode Elements
-  const adminToggleBtn = document.getElementById("adminToggleBtn");
+  // Admin Mode & Settings Elements
+  const settingsBtn = document.getElementById("settingsBtn");
+  const settingsModal = document.getElementById("settingsModal");
+  const settingsModalCloseBtn = document.getElementById("settingsModalCloseBtn");
+  const settingsLoginView = document.getElementById("settingsLoginView");
+  const settingsAdminView = document.getElementById("settingsAdminView");
+  const settingsUserLabel = document.getElementById("settingsUserLabel");
+  const settingsToggleAdminBtn = document.getElementById("settingsToggleAdminBtn");
+  const loginForm = document.getElementById("loginForm");
+  const loginUsernameInput = document.getElementById("loginUsername");
+  const loginPasswordInput = document.getElementById("loginPassword");
+  const loginErrorEl = document.getElementById("loginError");
+  const loginSubmitBtn = document.getElementById("loginSubmitBtn");
+  const changePasswordForm = document.getElementById("changePasswordForm");
+  const changePassMsgEl = document.getElementById("changePassMsg");
+  const logoutBtn = document.getElementById("logoutBtn");
+
   const adminBanner = document.getElementById("adminBanner");
+  const adminDeletedWrap = document.getElementById("adminDeletedWrap");
   const adminDeletedCountEl = document.getElementById("adminDeletedCount");
   const adminUndoBtn = document.getElementById("adminUndoBtn");
   const adminExportBtn = document.getElementById("adminExportBtn");
@@ -32,16 +48,27 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentFilteredList = [];
   let displayedCount = 0;
 
-  // Track deleted paintings
+  // Track deleted paintings (offline fallback)
   let deletedIds = new Set(JSON.parse(localStorage.getItem("platenko_deleted_ids") || "[]"));
   let undoStack = [];
 
-  // Custom edits (title, description etc.) stored in localStorage
+  // Custom edits (offline fallback)
   let customEdits = JSON.parse(localStorage.getItem("platenko_custom_edits") || "{}");
+
+  // Auth state
+  let _isAuthenticated = false;
+  let _authUsername = null;
 
   // Edit modal state
   let editingArtId = null;
   let editPhotos = []; // current photo list being edited
+  let pendingThumbMap = {}; // full dataUrl -> 600px thumb dataUrl
+
+  function toThumbUrl(url) {
+    if (!url || typeof url !== "string") return url;
+    if (url.startsWith("data:") || url.startsWith("blob:")) return url;
+    return url + (url.includes("?") ? "&" : "?") + "size=thumb";
+  }
 
   // Modal navigation state
   let currentArtworkImages = [];
@@ -68,38 +95,213 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // 2. Admin Mode Handling
+  // 2. Settings, Auth & Admin Mode Handling
+  function updateSettingsUI() {
+    const isAdminActive = document.body.classList.contains("admin-mode");
+    if (settingsBtn) {
+      settingsBtn.classList.toggle("logged-in", _isAuthenticated);
+    }
+    if (settingsLoginView && settingsAdminView) {
+      settingsLoginView.style.display = _isAuthenticated ? "none" : "block";
+      settingsAdminView.style.display = _isAuthenticated ? "block" : "none";
+    }
+    if (settingsUserLabel && _authUsername) {
+      settingsUserLabel.textContent = _authUsername;
+    }
+    if (settingsToggleAdminBtn) {
+      settingsToggleAdminBtn.textContent = isAdminActive
+        ? "🛠️ Vypnúť Admin mód"
+        : "🛠️ Zapnúť Admin mód";
+    }
+  }
+
+  function openSettingsModal() {
+    if (!settingsModal) return;
+    updateSettingsUI();
+    if (loginErrorEl) loginErrorEl.style.display = "none";
+    if (changePassMsgEl) changePassMsgEl.style.display = "none";
+    settingsModal.classList.add("open");
+    document.body.style.overflow = "hidden";
+    if (!_isAuthenticated) {
+      setTimeout(() => {
+        if (loginUsernameInput && !loginUsernameInput.value) {
+          loginUsernameInput.focus();
+        } else if (loginPasswordInput) {
+          loginPasswordInput.focus();
+        }
+      }, 60);
+    }
+  }
+
+  function closeSettingsModal() {
+    if (!settingsModal) return;
+    settingsModal.classList.remove("open");
+    document.body.style.overflow = "";
+  }
+
+  async function checkAuthSession() {
+    try {
+      const resp = await fetch("/api/auth/me");
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      _isAuthenticated = Boolean(data && data.authenticated);
+      _authUsername = data && data.username ? data.username : null;
+    } catch {
+      // Offline / file:// mode fallback
+      _isAuthenticated = !_usingCloudAPI;
+      _authUsername = null;
+    }
+    updateSettingsUI();
+  }
+
+  function handleUnauthorized() {
+    _isAuthenticated = false;
+    _authUsername = null;
+    setAdminMode(false);
+    updateSettingsUI();
+    alert("Prihlásenie vypršalo. Prihlás sa prosím znova v Nastaveniach.");
+    openSettingsModal();
+  }
+
   function setAdminMode(enable) {
+    if (enable && _usingCloudAPI && !_isAuthenticated) {
+      openSettingsModal();
+      return;
+    }
     if (enable) {
       document.body.classList.add("admin-mode");
-      if (adminToggleBtn) {
-        adminToggleBtn.classList.add("admin-active");
-        adminToggleBtn.innerHTML = `🛠️ <span>Admin: ZAP</span>`;
-      }
     } else {
       document.body.classList.remove("admin-mode");
-      if (adminToggleBtn) {
-        adminToggleBtn.classList.remove("admin-active");
-        adminToggleBtn.innerHTML = `🛠️ <span>Admin mód</span>`;
-      }
     }
+    updateSettingsUI();
     updateAdminStats();
   }
 
   function updateAdminStats() {
+    if (adminDeletedWrap) {
+      adminDeletedWrap.style.display = _usingCloudAPI ? "none" : "inline";
+    }
     if (adminDeletedCountEl) {
-      adminDeletedCountEl.textContent = _usingCloudAPI ? undoStack.length : deletedIds.size;
+      adminDeletedCountEl.textContent = deletedIds.size;
     }
     if (adminUndoBtn) {
+      adminUndoBtn.style.display = _usingCloudAPI ? "none" : "inline-block";
       adminUndoBtn.disabled = undoStack.length === 0;
       adminUndoBtn.style.opacity = undoStack.length === 0 ? "0.5" : "1";
     }
   }
 
-  if (adminToggleBtn) {
-    adminToggleBtn.addEventListener("click", () => {
+  if (settingsBtn) {
+    settingsBtn.addEventListener("click", openSettingsModal);
+  }
+  if (settingsModalCloseBtn) {
+    settingsModalCloseBtn.addEventListener("click", closeSettingsModal);
+  }
+  if (settingsModal) {
+    settingsModal.addEventListener("click", (e) => {
+      if (e.target === settingsModal) closeSettingsModal();
+    });
+  }
+
+  if (loginForm) {
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (loginErrorEl) loginErrorEl.style.display = "none";
+      if (loginSubmitBtn) loginSubmitBtn.disabled = true;
+
+      try {
+        const resp = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: loginUsernameInput ? loginUsernameInput.value.trim() : "mario",
+            password: loginPasswordInput ? loginPasswordInput.value : "",
+          }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.authenticated) {
+          throw new Error(data.error || "Nesprávne meno alebo heslo.");
+        }
+        _isAuthenticated = true;
+        _authUsername = data.username || "mario";
+        if (loginPasswordInput) loginPasswordInput.value = "";
+        updateSettingsUI();
+      } catch (err) {
+        if (loginErrorEl) {
+          loginErrorEl.textContent = err.message || "Chyba prihlásenia.";
+          loginErrorEl.style.display = "block";
+        }
+      } finally {
+        if (loginSubmitBtn) loginSubmitBtn.disabled = false;
+      }
+    });
+  }
+
+  if (settingsToggleAdminBtn) {
+    settingsToggleAdminBtn.addEventListener("click", () => {
       const isCurrently = document.body.classList.contains("admin-mode");
       setAdminMode(!isCurrently);
+      closeSettingsModal();
+    });
+  }
+
+  if (changePasswordForm) {
+    changePasswordForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const curPass = document.getElementById("currentPassword").value;
+      const newPass = document.getElementById("newPassword").value;
+      const confPass = document.getElementById("confirmPassword").value;
+
+      const showMsg = (text, isErr) => {
+        if (!changePassMsgEl) return;
+        changePassMsgEl.textContent = text;
+        changePassMsgEl.className = isErr ? "settings-error" : "settings-success";
+        changePassMsgEl.style.display = "block";
+      };
+
+      if (newPass.length < 6) {
+        showMsg("Nové heslo musí mať aspoň 6 znakov.", true);
+        return;
+      }
+      if (newPass !== confPass) {
+        showMsg("Nové heslá sa nezhodujú.", true);
+        return;
+      }
+
+      try {
+        const resp = await fetch("/api/auth/change-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ currentPassword: curPass, newPassword: newPass }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (resp.status === 401 && data.error === "Unauthorized") {
+          handleUnauthorized();
+          return;
+        }
+        if (!resp.ok || !data.success) {
+          throw new Error(data.error || "Nepodarilo sa zmeniť heslo.");
+        }
+        changePasswordForm.reset();
+        showMsg("Heslo bolo úspešne zmenené.", false);
+      } catch (err) {
+        showMsg(err.message || "Chyba pri zmene hesla.", true);
+      }
+    });
+  }
+
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", async () => {
+      try {
+        await fetch("/api/auth/logout", { method: "POST" });
+      } catch {
+        // ignore offline
+      }
+      _isAuthenticated = false;
+      _authUsername = null;
+      setAdminMode(false);
+      updateSettingsUI();
+      closeSettingsModal();
     });
   }
 
@@ -108,35 +310,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (adminUndoBtn) {
-    adminUndoBtn.addEventListener("click", async () => {
-      if (undoStack.length === 0) return;
-
-      if (_usingCloudAPI) {
-        const restoredArt = undoStack.pop();
-        if (restoredArt && restoredArt.id) {
-          if (!_masterArtworksList) _masterArtworksList = [];
-          if (!_masterArtworksList.some(a => a.id === restoredArt.id)) {
-            _masterArtworksList.push(restoredArt);
-            _masterArtworksList.sort((a, b) =>
-              (b.date || "").localeCompare(a.date || "") || (b.id || "").localeCompare(a.id || "")
-            );
-          }
-          try {
-            const resp = await fetch("/api/artworks", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(restoredArt)
-            });
-            if (!resp.ok) throw new Error("HTTP " + resp.status);
-          } catch (err) {
-            console.warn("D1 restore failed:", err);
-          }
-        }
-        updateAdminStats();
-        applyFilter(activeFilter);
-        return;
-      }
-
+    adminUndoBtn.addEventListener("click", () => {
+      if (_usingCloudAPI || undoStack.length === 0) return;
       const restoredId = undoStack.pop();
       deletedIds.delete(restoredId);
       localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
@@ -284,7 +459,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="card-image-wrap">
           <button class="card-delete-btn" title="Vymazať túto maľbu z webu" aria-label="Vymazať">✕</button>
           <button class="card-edit-btn" title="Upraviť maľbu (názov, popis, fotky...)" aria-label="Upraviť">✏️</button>
-          <img src="${art.coverImage}" alt="${art.title}" loading="lazy">
+          <img src="${toThumbUrl(art.coverImage)}" alt="${art.title}" loading="lazy" decoding="async">
           <span class="card-badge ${badgeClass}">${art.status || "Available"}</span>
           ${photoCountHtml}
         </div>
@@ -335,27 +510,37 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function handleDeleteArtwork(art, cardEl) {
-    if (!confirm(`Naozaj chceš vymazať maľbu "${art.title}"?`)) return;
+    const promptMsg = _usingCloudAPI
+      ? `Naozaj chceš natrvalo vymazať maľbu "${art.title}" vrátane všetkých fotiek a náhľadov?`
+      : `Naozaj chceš vymazať maľbu "${art.title}"?`;
+    if (!confirm(promptMsg)) return;
 
     cardEl.classList.add("deleting");
 
     setTimeout(async () => {
-      cardEl.remove();
-
       if (_usingCloudAPI) {
-        undoStack.push(JSON.parse(JSON.stringify(art)));
-        if (_masterArtworksList) {
-          _masterArtworksList = _masterArtworksList.filter(item => item.id !== art.id);
-        }
         try {
           const resp = await fetch(`/api/artworks/${encodeURIComponent(art.id)}`, {
             method: "DELETE"
           });
+          if (resp.status === 401) {
+            cardEl.classList.remove("deleting");
+            handleUnauthorized();
+            return;
+          }
           if (!resp.ok) throw new Error("HTTP " + resp.status);
         } catch (err) {
           console.warn("D1 delete failed:", err);
+          cardEl.classList.remove("deleting");
+          alert("Nepodarilo sa vymazať maľbu zo servera.");
+          return;
+        }
+        cardEl.remove();
+        if (_masterArtworksList) {
+          _masterArtworksList = _masterArtworksList.filter(item => item.id !== art.id);
         }
       } else {
+        cardEl.remove();
         deletedIds.add(art.id);
         undoStack.push(art.id);
         localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
@@ -425,7 +610,7 @@ document.addEventListener("DOMContentLoaded", () => {
     currentArtworkImages.forEach((imgUrl, index) => {
       const thumb = document.createElement("div");
       thumb.className = `modal-thumb ${index === 0 ? "active" : ""}`;
-      thumb.innerHTML = `<img src="${imgUrl}" alt="${art.title} foto ${index + 1}">`;
+      thumb.innerHTML = `<img src="${toThumbUrl(imgUrl)}" alt="${art.title} foto ${index + 1}" loading="lazy" decoding="async">`;
       
       thumb.addEventListener("click", () => {
         currentImageIndex = index;
@@ -546,7 +731,7 @@ document.addEventListener("DOMContentLoaded", () => {
       thumb.className = `edit-photo-thumb${index === 0 ? " cover-photo" : ""}`;
       thumb.title = index === 0 ? "Titulná fotka (cover)" : url.split("/").pop();
       thumb.innerHTML = `
-        <img src="${url}" alt="Fotka ${index + 1}" loading="lazy">
+        <img src="${toThumbUrl(url)}" alt="Fotka ${index + 1}" loading="lazy" decoding="async">
         <button class="remove-photo-btn" title="Odstrániť z albumu">✕</button>
       `;
 
@@ -618,6 +803,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // Persist to D1 + R2 via API
     if (_usingCloudAPI) {
       try {
+        const thumbPayload = {};
+        photosSnapshot.forEach((p) => {
+          if (pendingThumbMap[p]) thumbPayload[p] = pendingThumbMap[p];
+        });
+
         const resp = await fetch(`/api/artworks/${encodeURIComponent(targetId)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -629,11 +819,17 @@ document.addEventListener("DOMContentLoaded", () => {
             dimensions: updates.dimensions,
             medium: updates.medium,
             coverImage: updates.coverImage,
-            detailImages: updates.detailImages
+            detailImages: updates.detailImages,
+            thumbMap: thumbPayload
           })
         });
+        if (resp.status === 401) {
+          handleUnauthorized();
+          return;
+        }
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         const resData = await resp.json();
+        pendingThumbMap = {};
         if (resData && resData.coverImage && _masterArtworksList) {
           const idx = _masterArtworksList.findIndex(a => a.id === targetId);
           if (idx !== -1) {
@@ -1144,10 +1340,35 @@ document.addEventListener("DOMContentLoaded", () => {
   if (coverStudioCloseBtn) coverStudioCloseBtn.addEventListener("click", closeCoverStudio);
   if (coverStudioCancelBtn) coverStudioCancelBtn.addEventListener("click", closeCoverStudio);
 
+  function createThumbDataUrl(srcCanvas, maxDim = 600, quality = 0.8) {
+    const w = srcCanvas.width;
+    const h = srcCanvas.height;
+    const maxSide = Math.max(w, h);
+    if (!maxSide) return null;
+    const scale = maxSide > maxDim ? maxDim / maxSide : 1;
+    const tw = Math.max(1, Math.round(w * scale));
+    const th = Math.max(1, Math.round(h * scale));
+    const tmp = document.createElement("canvas");
+    tmp.width = tw;
+    tmp.height = th;
+    const tctx = tmp.getContext("2d");
+    tctx.imageSmoothingEnabled = true;
+    tctx.imageSmoothingQuality = "high";
+    tctx.drawImage(srcCanvas, 0, 0, tw, th);
+    return tmp.toDataURL("image/jpeg", quality);
+  }
+
   // Apply Generated 3D Mockup
   if (applyCoverBtn) {
     applyCoverBtn.addEventListener("click", () => {
       function processExport(dataUrl) {
+        try {
+          const thumbDataUrl = createThumbDataUrl(previewCanvas, 600, 0.8);
+          if (thumbDataUrl) pendingThumbMap[dataUrl] = thumbDataUrl;
+        } catch {
+          // fallback if thumbnail canvas fails
+        }
+
         // 1. Zaradiť novú fotku na začiatok albumu ako Cover
         editPhotos.unshift(dataUrl);
         renderEditPhotoGrid();
@@ -1182,6 +1403,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ============================================================
 
-  // Initial load — fetch from API first
+  // Initial load — verify session & fetch artworks from API
+  checkAuthSession();
   loadArtworksFromAPI();
 });

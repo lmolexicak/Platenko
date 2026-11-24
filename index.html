@@ -28,14 +28,11 @@
         </div>
       </a>
       <div class="nav-actions">
-        <a href="sorter.html" class="theme-toggle-btn" style="text-decoration: none;" title="Tabuľkový organizér a premenovanie malieb">
-          📋 <span>Organizér</span>
-        </a>
-        <button id="adminToggleBtn" class="theme-toggle-btn" title="Zapnúť / Vypnúť vizuálny Admin mód pre mazanie">
-          🛠️ <span>Admin mód</span>
-        </button>
         <button id="themeToggle" class="theme-toggle-btn" title="Prepnúť svetlý / tmavý režim">
           🌙 <span>Tmavý</span>
+        </button>
+        <button id="settingsBtn" class="theme-toggle-btn settings-btn" title="Nastavenia a správa" aria-label="Nastavenia">
+          ⚙️
         </button>
       </div>
     </div>
@@ -45,10 +42,11 @@
   <div class="admin-banner" id="adminBanner">
     <div class="admin-banner-info">
       <span class="admin-banner-badge">Admin Mód</span>
-      <span>Kliknutím na <strong>✕</strong> v rohu maľby ju vymažeš.</span>
-      <span>(Vymazaných: <strong id="adminDeletedCount">0</strong>)</span>
+      <span>Kliknutím na <strong>✕</strong> natrvalo vymažeš maľbu aj jej fotky a náhľady, cez <strong>✏️</strong> upravíš album.</span>
+      <span id="adminDeletedWrap">(Vymazaných: <strong id="adminDeletedCount">0</strong>)</span>
     </div>
     <div class="admin-banner-actions">
+      <a href="sorter.html" class="btn-admin-action" style="text-decoration: none;" title="Otvoriť tabuľkový organizér malieb">📋 Organizér</a>
       <button id="adminUndoBtn" class="btn-admin-action" title="Obnoviť poslednú vymazanú maľbu">↩️ Vrátiť späť</button>
       <button id="adminExportBtn" class="btn-admin-save" title="Uložiť vykonané zmeny">💾 Uložiť zmeny</button>
       <button id="adminExitBtn" class="btn-admin-action" title="Ukončiť administrátorský režim">Ukončiť Admin</button>
@@ -279,6 +277,81 @@
             Inquire About This Piece
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings & Auth Modal -->
+  <div class="modal-overlay" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+    <div class="settings-modal-box">
+      <button class="modal-close-btn" id="settingsModalCloseBtn" aria-label="Zavrieť">✕</button>
+      <h2 id="settingsModalTitle" style="font-size: 1.35rem; margin-bottom: 6px;">⚙️ Nastavenia</h2>
+
+      <!-- Login View (when logged out) -->
+      <div id="settingsLoginView">
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 18px;">
+          Prihlás sa pre prístup k úpravám albumov, mazaniu a organizéru.
+        </p>
+        <form id="loginForm" style="display: flex; flex-direction: column; gap: 14px;">
+          <div>
+            <label class="edit-label" for="loginUsername">Meno</label>
+            <input type="text" id="loginUsername" class="edit-input" value="mario" autocomplete="username" required>
+          </div>
+          <div>
+            <label class="edit-label" for="loginPassword">Heslo</label>
+            <input type="password" id="loginPassword" class="edit-input" placeholder="Zadaj heslo..." autocomplete="current-password" required>
+          </div>
+          <div id="loginError" class="settings-error" style="display: none;"></div>
+          <button type="submit" id="loginSubmitBtn" class="btn-edit-save" style="width: 100%; justify-content: center; margin-top: 4px;">
+            🔐 Prihlásiť sa
+          </button>
+        </form>
+      </div>
+
+      <!-- Authenticated View (when logged in) -->
+      <div id="settingsAdminView" style="display: none;">
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 18px;">
+          Prihlásený ako <strong id="settingsUserLabel" style="color: var(--text-main);">mario</strong>
+        </p>
+
+        <div class="settings-action-list">
+          <button type="button" id="settingsToggleAdminBtn" class="btn-edit-save" style="width: 100%; justify-content: center;">
+            🛠️ Zapnúť Admin mód
+          </button>
+          <a href="sorter.html" class="btn-secondary" style="width: 100%; text-align: center; text-decoration: none; display: block;">
+            📋 Otvoriť Organizér
+          </a>
+        </div>
+
+        <hr class="settings-divider">
+
+        <details class="settings-details" id="changePasswordDetails">
+          <summary>🔑 Zmeniť heslo</summary>
+          <form id="changePasswordForm" style="display: flex; flex-direction: column; gap: 12px; margin-top: 14px;">
+            <div>
+              <label class="edit-label" for="currentPassword">Aktuálne heslo</label>
+              <input type="password" id="currentPassword" class="edit-input" autocomplete="current-password" required>
+            </div>
+            <div>
+              <label class="edit-label" for="newPassword">Nové heslo (min. 6 znakov)</label>
+              <input type="password" id="newPassword" class="edit-input" autocomplete="new-password" minlength="6" required>
+            </div>
+            <div>
+              <label class="edit-label" for="confirmPassword">Potvrdiť nové heslo</label>
+              <input type="password" id="confirmPassword" class="edit-input" autocomplete="new-password" minlength="6" required>
+            </div>
+            <div id="changePassMsg" style="display: none;"></div>
+            <button type="submit" class="btn-secondary" style="width: 100%;">
+              Uložiť nové heslo
+            </button>
+          </form>
+        </details>
+
+        <hr class="settings-divider">
+
+        <button type="button" id="logoutBtn" class="btn-secondary" style="width: 100%; color: #ef4444; border-color: rgba(239, 68, 68, 0.35);">
+          🚪 Odhlásiť sa
+        </button>
       </div>
     </div>
   </div>

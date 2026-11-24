@@ -62,6 +62,29 @@
     .merge-badge-primary { position: absolute; top: 8px; right: 8px; background: #6366f1; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 9999px; text-transform: uppercase; }
     .merge-modal-actions { display: flex; gap: 12px; justify-content: flex-end; }
     .merge-hint { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px; }
+
+    /* Auth Gate Overlay */
+    .sorter-auth-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.72);
+      backdrop-filter: blur(8px);
+      z-index: 250;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .sorter-auth-overlay.open { display: flex; }
+    .sorter-auth-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      max-width: 420px;
+      width: 100%;
+      padding: 30px;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.4);
+    }
   </style>
 </head>
 <body>
@@ -77,12 +100,40 @@
       </a>
       <div class="nav-actions">
         <a href="index.html" class="theme-toggle-btn" style="text-decoration: none;">← Galéria</a>
+        <button id="sorterLogoutBtn" class="theme-toggle-btn" style="display: none; color: #ef4444;" title="Odhlásiť sa">🚪 <span>Odhlásiť</span></button>
         <button id="themeToggle" class="theme-toggle-btn">🌙 <span>Tmavý</span></button>
       </div>
     </div>
   </header>
 
-  <main class="sorter-container">
+  <!-- Auth Login Gate -->
+  <div class="sorter-auth-overlay" id="sorterAuthOverlay" role="dialog" aria-modal="true">
+    <div class="sorter-auth-card">
+      <h2 style="font-size: 1.35rem; margin-bottom: 6px;">🔐 Prihlásenie do Organizéra</h2>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 18px;">
+        Organizér je chránený proti neoprávneným zmenám. Prihlás sa svojím účtom.
+      </p>
+      <form id="sorterLoginForm" style="display: flex; flex-direction: column; gap: 14px;">
+        <div>
+          <label class="edit-label" for="sorterUsername">Meno</label>
+          <input type="text" id="sorterUsername" class="edit-input" value="mario" autocomplete="username" required>
+        </div>
+        <div>
+          <label class="edit-label" for="sorterPassword">Heslo</label>
+          <input type="password" id="sorterPassword" class="edit-input" placeholder="Zadaj heslo..." autocomplete="current-password" required>
+        </div>
+        <div id="sorterAuthError" class="settings-error" style="display: none;"></div>
+        <button type="submit" id="sorterLoginSubmit" class="btn-edit-save" style="width: 100%; justify-content: center;">
+          Prihlásiť sa
+        </button>
+        <a href="index.html" class="btn-secondary" style="width: 100%; text-align: center; text-decoration: none; display: block;">
+          ← Späť do galérie
+        </a>
+      </form>
+    </div>
+  </div>
+
+  <main class="sorter-container" id="sorterMain" style="display: none;">
 
     <!-- Sticky Toolbar (Header + Controls + Info Bar) -->
     <div class="sticky-toolbar">
@@ -164,41 +215,46 @@
     const mergeBtn = document.getElementById("mergeBtn");
     const mergeInfoBar = document.getElementById("mergeInfoBar");
     const mergeModal = document.getElementById("mergeModal");
+    const sorterMain = document.getElementById("sorterMain");
+    const sorterAuthOverlay = document.getElementById("sorterAuthOverlay");
+    const sorterLoginForm = document.getElementById("sorterLoginForm");
+    const sorterUsernameInput = document.getElementById("sorterUsername");
+    const sorterPasswordInput = document.getElementById("sorterPassword");
+    const sorterAuthError = document.getElementById("sorterAuthError");
+    const sorterLoginSubmit = document.getElementById("sorterLoginSubmit");
+    const sorterLogoutBtn = document.getElementById("sorterLogoutBtn");
 
     // Merge selection state
     let mergeSelection = []; // array of selected IDs (can be 2, 3, 4+)
     let mergePrimaryId = null; // which painting keeps title and cover
 
-    async function loadFromAPI() {
-      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted);">⏳ Načítavam zoznam malieb…</td></tr>`;
-      try {
-        const resp = await fetch("/api/artworks");
-        if (!resp.ok) throw new Error("HTTP " + resp.status);
-        const data = await resp.json();
-        if (Array.isArray(data) && data.length > 0) {
-          usingCloudAPI = true;
-          list = data;
-          renderTable(searchInput.value.trim());
-          return;
+    function toThumbUrl(url) {
+      if (!url || typeof url !== "string") return url;
+      if (url.startsWith("data:") || url.startsWith("blob:")) return url;
+      return url + (url.includes("?") ? "&" : "?") + "size=thumb";
+    }
+
+    function showAuthGate(errorMsg = "") {
+      if (sorterMain) sorterMain.style.display = "none";
+      if (sorterLogoutBtn) sorterLogoutBtn.style.display = "none";
+      if (sorterAuthOverlay) sorterAuthOverlay.classList.add("open");
+      if (sorterAuthError) {
+        if (errorMsg) {
+          sorterAuthError.textContent = errorMsg;
+          sorterAuthError.style.display = "block";
+        } else {
+          sorterAuthError.style.display = "none";
         }
-        throw new Error("Empty API response");
-      } catch (err) {
-        console.warn("API load failed, falling back to local data:", err);
-        usingCloudAPI = false;
-        const customStored = localStorage.getItem("platenko_artworks_custom");
-        let baseList = [];
-        if (customStored) {
-          try {
-            const parsed = JSON.parse(customStored);
-            if (Array.isArray(parsed) && parsed.length > 0) baseList = parsed;
-          } catch (e) {}
-        }
-        if (baseList.length === 0) {
-          baseList = Array.isArray(artworksData) ? JSON.parse(JSON.stringify(artworksData)) : [];
-        }
-        list = baseList.filter(item => !deletedIds.has(item.id));
-        renderTable(searchInput.value.trim());
       }
+      setTimeout(() => {
+        if (sorterPasswordInput) sorterPasswordInput.focus();
+      }, 60);
+    }
+
+    function hideAuthGate(showLogout = true) {
+      if (sorterAuthOverlay) sorterAuthOverlay.classList.remove("open");
+      if (sorterMain) sorterMain.style.display = "block";
+      if (sorterLogoutBtn) sorterLogoutBtn.style.display = showLogout ? "inline-flex" : "none";
     }
 
     async function persistItem(id, payload) {
@@ -209,6 +265,10 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
+        if (resp.status === 401) {
+          showAuthGate("Prihlásenie vypršalo. Prihlás sa znova.");
+          return;
+        }
         if (!resp.ok) throw new Error("HTTP " + resp.status);
       } catch (err) {
         console.warn("D1 update failed:", err);
@@ -252,7 +312,7 @@
           </td>
           <td>
             <a href="${art.coverImage}" target="_blank">
-              <img src="${art.coverImage}" class="thumb-preview" alt="Náhľad" loading="lazy">
+              <img src="${toThumbUrl(art.coverImage)}" class="thumb-preview" alt="Náhľad" loading="lazy" decoding="async">
             </a>
           </td>
           <td>
@@ -355,7 +415,7 @@
         card.className = `merge-preview-card ${isPrimary ? "pick-title" : ""}`;
         card.innerHTML = `
           ${isPrimary ? '<span class="merge-badge-primary">HLAVNÝ</span>' : ''}
-          <img src="${art.coverImage}" alt="${art.title}">
+          <img src="${toThumbUrl(art.coverImage)}" alt="${art.title}" loading="lazy" decoding="async">
           <strong>${art.title}</strong>
           <span>${art.date || art.year}</span>
           <span style="display:block;margin-top:4px;font-size:0.75rem;">📷 ${(art.detailImages || [art.coverImage]).length} fotiek</span>
@@ -419,6 +479,11 @@
               mergeIds: otherIds
             })
           });
+          if (resp.status === 401) {
+            closeMergeModal();
+            showAuthGate("Prihlásenie vypršalo. Prihlás sa znova.");
+            return;
+          }
           if (!resp.ok) throw new Error("HTTP " + resp.status);
           const merged = await resp.json();
           if (merged && Array.isArray(merged.detailImages)) {
@@ -480,20 +545,29 @@
     window.removeItem = async function(id) {
       const item = list.find(i => i.id === id);
       if (!item) return;
-      if (confirm(`Naozaj chceš odstrániť „${item.title}"?`)) {
-        list = list.filter(i => i.id !== id);
-        mergeSelection = mergeSelection.filter(x => x !== id);
+      const msg = usingCloudAPI
+        ? `Naozaj chceš natrvalo odstrániť „${item.title}" vrátane fotiek a náhľadov?`
+        : `Naozaj chceš odstrániť „${item.title}"?`;
+      if (confirm(msg)) {
         if (usingCloudAPI) {
           try {
             const resp = await fetch(`/api/artworks/${encodeURIComponent(id)}`, { method: "DELETE" });
+            if (resp.status === 401) {
+              showAuthGate("Prihlásenie vypršalo. Prihlás sa znova.");
+              return;
+            }
             if (!resp.ok) throw new Error("HTTP " + resp.status);
           } catch (err) {
             console.warn("D1 delete failed:", err);
+            alert("Nepodarilo sa vymazať maľbu zo servera.");
+            return;
           }
         } else {
           deletedIds.add(id);
           localStorage.setItem("platenko_deleted_ids", JSON.stringify([...deletedIds]));
         }
+        list = list.filter(i => i.id !== id);
+        mergeSelection = mergeSelection.filter(x => x !== id);
         renderTable(searchInput.value.trim());
       }
     };
@@ -531,7 +605,99 @@
       themeBtn.innerHTML = next === "dark" ? "☀️ <span>Svetlý</span>" : "🌙 <span>Tmavý</span>";
     });
 
-    loadFromAPI();
+    async function loadFromAPI() {
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted);">⏳ Načítavam zoznam malieb…</td></tr>`;
+      try {
+        const resp = await fetch("/api/artworks");
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const data = await resp.json();
+        if (Array.isArray(data) && data.length > 0) {
+          usingCloudAPI = true;
+          list = data;
+          renderTable(searchInput.value.trim());
+          return;
+        }
+        throw new Error("Empty API response");
+      } catch (err) {
+        console.warn("API load failed, falling back to local data:", err);
+        usingCloudAPI = false;
+        const customStored = localStorage.getItem("platenko_artworks_custom");
+        let baseList = [];
+        if (customStored) {
+          try {
+            const parsed = JSON.parse(customStored);
+            if (Array.isArray(parsed) && parsed.length > 0) baseList = parsed;
+          } catch (e) {}
+        }
+        if (baseList.length === 0) {
+          baseList = Array.isArray(artworksData) ? JSON.parse(JSON.stringify(artworksData)) : [];
+        }
+        list = baseList.filter(item => !deletedIds.has(item.id));
+        renderTable(searchInput.value.trim());
+      }
+    }
+
+    if (sorterLoginForm) {
+      sorterLoginForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (sorterAuthError) sorterAuthError.style.display = "none";
+        if (sorterLoginSubmit) sorterLoginSubmit.disabled = true;
+
+        try {
+          const resp = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              username: sorterUsernameInput ? sorterUsernameInput.value.trim() : "mario",
+              password: sorterPasswordInput ? sorterPasswordInput.value : ""
+            })
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.authenticated) {
+            throw new Error(data.error || "Nesprávne meno alebo heslo.");
+          }
+          if (sorterPasswordInput) sorterPasswordInput.value = "";
+          hideAuthGate(true);
+          loadFromAPI();
+        } catch (err) {
+          if (sorterAuthError) {
+            sorterAuthError.textContent = err.message || "Chyba prihlásenia.";
+            sorterAuthError.style.display = "block";
+          }
+        } finally {
+          if (sorterLoginSubmit) sorterLoginSubmit.disabled = false;
+        }
+      });
+    }
+
+    if (sorterLogoutBtn) {
+      sorterLogoutBtn.addEventListener("click", async () => {
+        try {
+          await fetch("/api/auth/logout", { method: "POST" });
+        } catch {}
+        showAuthGate();
+      });
+    }
+
+    async function initSorter() {
+      try {
+        const resp = await fetch("/api/auth/me");
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const data = await resp.json();
+        if (data && data.authenticated) {
+          hideAuthGate(true);
+          loadFromAPI();
+        } else {
+          showAuthGate();
+        }
+      } catch {
+        // Offline file:// fallback
+        hideAuthGate(false);
+        loadFromAPI();
+      }
+    }
+
+    initSorter();
   </script>
 </body>
 </html>
