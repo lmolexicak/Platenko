@@ -3032,6 +3032,17 @@ footer {
   grid-template-columns: 1fr 1fr;
 }
 
+.adm-table tr.is-active {
+  background: rgba(99, 102, 241, 0.08);
+  box-shadow: inset 3px 0 0 #6366f1;
+}
+
+.adm-zoom-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 @media (max-width: 960px) {
   .cover-studio-body {
     grid-template-columns: 1fr;

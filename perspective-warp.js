@@ -1,7 +1,8 @@
 /**
  * Platenko Admin CMS - Interactive 4-Point Projective Homography & Crop Tool
  * Rectifies angled photos into flat rectangles while keeping original photos untouched.
- * Supports 90-degree rotations, -15..+15 deg fine rotation, Swapped/Free/Dimension aspect ratios, and 3x loupe.
+ * Supports 90-degree rotations, -15..+15 deg fine rotation, Swapped/Free/Dimension aspect ratios,
+ * mouse-wheel zoom (1x-6x) with cursor-anchored pan, and 3x circular loupe.
  */
 (function () {
   "use strict";
@@ -12,6 +13,10 @@
     { label: "3", color: "#f59e0b" },
     { label: "4", color: "#ef4444" },
   ];
+
+  function clamp(v, lo, hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+  }
 
   function computeHomography(dstPts, srcPts) {
     const A = [];
@@ -158,12 +163,22 @@
     corners: [],
     widthCm: 50,
     heightCm: 70,
-    aspectMode: "free", // "free" (derived from 4 corners) | "dims" (locked to widthCm x heightCm)
+    aspectMode: "free",
     isNewUpload: true,
     onApply: null,
     onSwapDims: null,
     activeCorner: -1,
     dispScale: 1,
+    dispW: 1,
+    dispH: 1,
+    viewZoom: 1,
+    viewPanX: 0,
+    viewPanY: 0,
+    isPanningView: false,
+    panStartDx: 0,
+    panStartDy: 0,
+    panOriginX: 0,
+    panOriginY: 0,
     previewTimer: null,
   };
 
@@ -181,10 +196,73 @@
     ui.swapAspectBtn = document.getElementById("warpSwapAspectBtn");
     ui.aspectMode = document.getElementById("warpAspectMode");
     ui.aspectLabel = document.getElementById("warpAspectLabel");
+    ui.zoomOutBtn = document.getElementById("warpZoomOutBtn");
+    ui.zoomResetBtn = document.getElementById("warpZoomResetBtn");
+    ui.zoomInBtn = document.getElementById("warpZoomInBtn");
     ui.resetBtn = document.getElementById("warpResetBtn");
     ui.cancelBtn = document.getElementById("warpCancelBtn");
     ui.closeBtn = document.getElementById("warpCloseBtn");
     ui.applyBtn = document.getElementById("warpApplyBtn");
+  }
+
+  function updateZoomReadout() {
+    if (ui.zoomResetBtn) {
+      ui.zoomResetBtn.textContent = `${Math.round(state.viewZoom * 100)}%`;
+    }
+    if (ui.sourceCanvas) {
+      ui.sourceCanvas.style.cursor = state.viewZoom > 1.01 ? "grab" : "crosshair";
+    }
+  }
+
+  function clampViewPan() {
+    const dw = state.dispW;
+    const dh = state.dispH;
+    const minX = dw - dw * state.viewZoom;
+    const minY = dh - dh * state.viewZoom;
+    state.viewPanX = clamp(state.viewPanX, minX, 0);
+    state.viewPanY = clamp(state.viewPanY, minY, 0);
+  }
+
+  function resetViewZoom() {
+    state.viewZoom = 1;
+    state.viewPanX = 0;
+    state.viewPanY = 0;
+    updateZoomReadout();
+  }
+
+  function srcToDisp(pt) {
+    const k = state.dispScale * state.viewZoom;
+    return {
+      x: pt.x * k + state.viewPanX,
+      y: pt.y * k + state.viewPanY,
+    };
+  }
+
+  function dispToSrc(dx, dy) {
+    const k = Math.max(1e-6, state.dispScale * state.viewZoom);
+    return {
+      x: clamp((dx - state.viewPanX) / k, 0, state.rotW),
+      y: clamp((dy - state.viewPanY) / k, 0, state.rotH),
+    };
+  }
+
+  function applyZoomAt(nextZoom, pivotDx, pivotDy) {
+    const oldZ = state.viewZoom;
+    const clampedZ = clamp(nextZoom, 1, 6);
+    if (clampedZ <= 1.02) {
+      resetViewZoom();
+      drawSourceOverlay();
+      return;
+    }
+    const anchorSrcX = (pivotDx - state.viewPanX) / (state.dispScale * oldZ);
+    const anchorSrcY = (pivotDy - state.viewPanY) / (state.dispScale * oldZ);
+
+    state.viewZoom = clampedZ;
+    state.viewPanX = pivotDx - anchorSrcX * state.dispScale * clampedZ;
+    state.viewPanY = pivotDy - anchorSrcY * state.dispScale * clampedZ;
+    clampViewPan();
+    updateZoomReadout();
+    drawSourceOverlay();
   }
 
   function getOutputRatio() {
@@ -218,7 +296,7 @@
     if (!state.img) return;
     const srcW = state.img.naturalWidth;
     const srcH = state.img.naturalHeight;
-    const maxWork = 1600;
+    const maxWork = 1800;
     const workScale = Math.max(srcW, srcH) > maxWork ? maxWork / Math.max(srcW, srcH) : 1;
     const w = Math.max(1, Math.round(srcW * workScale));
     const h = Math.max(1, Math.round(srcH * workScale));
@@ -243,6 +321,13 @@
     state.rotatedCanvas = canvas;
     state.rotW = rw;
     state.rotH = rh;
+
+    const maxDispW = Math.min(640, Math.max(280, window.innerWidth - 80));
+    const maxDispH = 440;
+    const scale = Math.min(maxDispW / rw, maxDispH / rh, 1);
+    state.dispScale = scale;
+    state.dispW = Math.max(1, Math.round(rw * scale));
+    state.dispH = Math.max(1, Math.round(rh * scale));
   }
 
   function resetCorners() {
@@ -258,24 +343,27 @@
 
   function drawSourceOverlay() {
     if (!ui.sourceCanvas || !state.rotatedCanvas) return;
-    const maxDispW = Math.min(640, Math.max(280, window.innerWidth - 80));
-    const maxDispH = 440;
-    const scale = Math.min(maxDispW / state.rotW, maxDispH / state.rotH, 1);
-    state.dispScale = scale;
-
-    const dw = Math.max(1, Math.round(state.rotW * scale));
-    const dh = Math.max(1, Math.round(state.rotH * scale));
+    const dw = state.dispW;
+    const dh = state.dispH;
     ui.sourceCanvas.width = dw;
     ui.sourceCanvas.height = dh;
 
     const ctx = ui.sourceCanvas.getContext("2d");
     ctx.clearRect(0, 0, dw, dh);
-    ctx.drawImage(state.rotatedCanvas, 0, 0, dw, dh);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(
+      state.rotatedCanvas,
+      state.viewPanX,
+      state.viewPanY,
+      dw * state.viewZoom,
+      dh * state.viewZoom
+    );
 
-    const dPts = state.corners.map((c) => ({ x: c.x * scale, y: c.y * scale }));
+    const dPts = state.corners.map(srcToDisp);
 
     ctx.save();
-    ctx.fillStyle = "rgba(0, 0, 0, 0.52)";
+    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
     ctx.beginPath();
     ctx.rect(0, 0, dw, dh);
     ctx.moveTo(dPts[0].x, dPts[0].y);
@@ -333,7 +421,7 @@
   function renderMagnifiedLoupe(srcPt, clientX, clientY) {
     if (!ui.loupeCanvas || !state.rotatedCanvas) return;
     const loupeSize = 128;
-    const zoomFactor = 3;
+    const zoomFactor = 3 * Math.min(2, state.viewZoom);
     const srcSampleHalf = loupeSize / (2 * zoomFactor);
 
     ui.loupeCanvas.width = loupeSize;
@@ -413,13 +501,13 @@
     img.crossOrigin = "anonymous";
     img.onload = () => {
       state.img = img;
-      // Default to "free" if aspect doesn't match portrait/landscape of widthCm x heightCm cleanly, else "dims"
       const imgLand = img.naturalWidth > img.naturalHeight * 1.05;
       const dimsLand = state.widthCm > state.heightCm * 1.05;
       state.aspectMode = imgLand === dimsLand ? "dims" : "free";
       if (ui.aspectMode) ui.aspectMode.value = state.aspectMode;
 
       buildRotatedSourceCanvas();
+      resetViewZoom();
       resetCorners();
       drawSourceOverlay();
       renderLivePreview();
@@ -438,6 +526,7 @@
     document.body.style.overflow = "";
     hideLoupe();
     state.activeCorner = -1;
+    state.isPanningView = false;
   }
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -457,6 +546,7 @@
         if (ui.rotSlider) ui.rotSlider.value = "0";
         if (ui.rotLabel) ui.rotLabel.textContent = "0°";
         buildRotatedSourceCanvas();
+        resetViewZoom();
         resetCorners();
         drawSourceOverlay();
         renderLivePreview();
@@ -466,6 +556,7 @@
     const rotateQuarter = (delta) => {
       state.baseQuarterTurns = (state.baseQuarterTurns + delta + 4) % 4;
       buildRotatedSourceCanvas();
+      resetViewZoom();
       resetCorners();
       drawSourceOverlay();
       renderLivePreview();
@@ -499,49 +590,85 @@
         state.rotationDeg = parseFloat(ui.rotSlider.value) || 0;
         if (ui.rotLabel) ui.rotLabel.textContent = `${state.rotationDeg > 0 ? "+" : ""}${state.rotationDeg.toFixed(1)}°`;
         buildRotatedSourceCanvas();
+        resetViewZoom();
         resetCorners();
         drawSourceOverlay();
         scheduleLivePreview();
       });
     }
 
+    if (ui.zoomOutBtn) {
+      ui.zoomOutBtn.addEventListener("click", () => applyZoomAt(state.viewZoom / 1.35, state.dispW / 2, state.dispH / 2));
+    }
+    if (ui.zoomInBtn) {
+      ui.zoomInBtn.addEventListener("click", () => applyZoomAt(state.viewZoom * 1.35, state.dispW / 2, state.dispH / 2));
+    }
+    if (ui.zoomResetBtn) {
+      ui.zoomResetBtn.addEventListener("click", () => {
+        resetViewZoom();
+        drawSourceOverlay();
+      });
+    }
+
     if (ui.sourceCanvas) {
-      const getSourcePos = (e) => {
+      const getDisplayPos = (e) => {
         const rect = ui.sourceCanvas.getBoundingClientRect();
-        const x = ((e.clientX - rect.left) / rect.width) * state.rotW;
-        const y = ((e.clientY - rect.top) / rect.height) * state.rotH;
         return {
-          x: Math.max(0, Math.min(state.rotW, x)),
-          y: Math.max(0, Math.min(state.rotH, y)),
+          x: ((e.clientX - rect.left) / Math.max(1, rect.width)) * state.dispW,
+          y: ((e.clientY - rect.top) / Math.max(1, rect.height)) * state.dispH,
         };
       };
 
+      ui.sourceCanvas.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const disp = getDisplayPos(e);
+        const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+        applyZoomAt(state.viewZoom * factor, disp.x, disp.y);
+      }, { passive: false });
+
       ui.sourceCanvas.addEventListener("pointerdown", (e) => {
-        const pos = getSourcePos(e);
-        const hitDist = 28 / Math.max(0.1, state.dispScale);
+        const disp = getDisplayPos(e);
         let bestIdx = -1;
         let bestD = Infinity;
         state.corners.forEach((c, idx) => {
-          const d = Math.hypot(c.x - pos.x, c.y - pos.y);
-          if (d < hitDist && d < bestD) {
+          const dc = srcToDisp(c);
+          const d = Math.hypot(dc.x - disp.x, dc.y - disp.y);
+          if (d <= 22 && d < bestD) {
             bestD = d;
             bestIdx = idx;
           }
         });
+
         if (bestIdx !== -1) {
           state.activeCorner = bestIdx;
+          state.isPanningView = false;
           try { ui.sourceCanvas.setPointerCapture(e.pointerId); } catch {}
           renderMagnifiedLoupe(state.corners[bestIdx], e.clientX, e.clientY);
+        } else if (state.viewZoom > 1.01) {
+          state.isPanningView = true;
+          state.panStartDx = disp.x;
+          state.panStartDy = disp.y;
+          state.panOriginX = state.viewPanX;
+          state.panOriginY = state.viewPanY;
+          ui.sourceCanvas.style.cursor = "grabbing";
+          try { ui.sourceCanvas.setPointerCapture(e.pointerId); } catch {}
         }
       });
 
       ui.sourceCanvas.addEventListener("pointermove", (e) => {
-        if (state.activeCorner === -1) return;
-        const pos = getSourcePos(e);
-        state.corners[state.activeCorner] = pos;
-        drawSourceOverlay();
-        renderMagnifiedLoupe(pos, e.clientX, e.clientY);
-        scheduleLivePreview();
+        const disp = getDisplayPos(e);
+        if (state.activeCorner !== -1) {
+          const srcPt = dispToSrc(disp.x, disp.y);
+          state.corners[state.activeCorner] = srcPt;
+          drawSourceOverlay();
+          renderMagnifiedLoupe(srcPt, e.clientX, e.clientY);
+          scheduleLivePreview();
+        } else if (state.isPanningView) {
+          state.viewPanX = state.panOriginX + (disp.x - state.panStartDx);
+          state.viewPanY = state.panOriginY + (disp.y - state.panStartDy);
+          clampViewPan();
+          drawSourceOverlay();
+        }
       });
 
       const stopDrag = () => {
@@ -549,6 +676,10 @@
           state.activeCorner = -1;
           hideLoupe();
           renderLivePreview();
+        }
+        if (state.isPanningView) {
+          state.isPanningView = false;
+          updateZoomReadout();
         }
       };
       ui.sourceCanvas.addEventListener("pointerup", stopDrag);

@@ -1,7 +1,7 @@
 /**
  * Platenko Admin CMS - 3D Cover Mockup Studio
- * Extracted from legacy inline admin mode into unified /admin CMS.
- * Always produces a non-destructive copy (user chooses: add as album copy or set as cover).
+ * Always produces a non-destructive copy (add as album copy or set as cover).
+ * Includes 3x magnified circular loupe + cursor-centered mouse-wheel zoom (1x-6x) & pan.
  */
 (function () {
   "use strict";
@@ -13,11 +13,25 @@
     { label: "4: Dole-Vľavo", color: "#ef4444" },
   ];
 
+  function clamp(v, lo, hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+  }
+
   let studioImg = new Image();
   let corners = [];
   let activeCornerIdx = -1;
   let canvasScale = 1;
   let onApplyCb = null;
+
+  // Mouse-wheel zoom & pan state on pinningCanvas
+  let viewZoom = 1;
+  let viewPanX = 0;
+  let viewPanY = 0;
+  let isPanning = false;
+  let panStartDx = 0;
+  let panStartDy = 0;
+  let panOriginX = 0;
+  let panOriginY = 0;
 
   const ui = {};
   function cacheUi() {
@@ -27,10 +41,121 @@
     ui.cancelBtn = document.getElementById("coverStudioCancelBtn");
     ui.detectBtn = document.getElementById("detectCornersBtn");
     ui.resetBtn = document.getElementById("resetCornersBtn");
+    ui.zoomOutBtn = document.getElementById("coverZoomOutBtn");
+    ui.zoomResetBtn = document.getElementById("coverZoomResetBtn");
+    ui.zoomInBtn = document.getElementById("coverZoomInBtn");
     ui.pinningCanvas = document.getElementById("pinningCanvas");
     ui.previewCanvas = document.getElementById("previewCanvas");
+    ui.loupeCanvas = document.getElementById("coverLoupeCanvas");
     ui.applyCopyBtn = document.getElementById("coverApplyCopyBtn");
     ui.applyCoverBtn = document.getElementById("coverApplyCoverBtn");
+  }
+
+  function updateZoomUI() {
+    if (ui.zoomResetBtn) {
+      ui.zoomResetBtn.textContent = `${Math.round(viewZoom * 100)}%`;
+    }
+    if (ui.pinningCanvas) {
+      ui.pinningCanvas.style.cursor = viewZoom > 1.01 ? "grab" : "crosshair";
+    }
+  }
+
+  function clampPan() {
+    if (!ui.pinningCanvas) return;
+    const pw = ui.pinningCanvas.width;
+    const ph = ui.pinningCanvas.height;
+    viewPanX = clamp(viewPanX, pw - pw * viewZoom, 0);
+    viewPanY = clamp(viewPanY, ph - ph * viewZoom, 0);
+  }
+
+  function resetZoom() {
+    viewZoom = 1;
+    viewPanX = 0;
+    viewPanY = 0;
+    updateZoomUI();
+  }
+
+  function pinToDisp(pt) {
+    return {
+      x: pt.x * viewZoom + viewPanX,
+      y: pt.y * viewZoom + viewPanY,
+    };
+  }
+
+  function dispToPin(dx, dy) {
+    const pw = ui.pinningCanvas ? ui.pinningCanvas.width : 800;
+    const ph = ui.pinningCanvas ? ui.pinningCanvas.height : 600;
+    return {
+      x: clamp((dx - viewPanX) / viewZoom, 0, pw),
+      y: clamp((dy - viewPanY) / viewZoom, 0, ph),
+    };
+  }
+
+  function applyZoomAt(nextZoom, pivotDx, pivotDy) {
+    const oldZ = viewZoom;
+    const clampedZ = clamp(nextZoom, 1, 6);
+    if (clampedZ <= 1.02) {
+      resetZoom();
+      drawPinningCanvas();
+      return;
+    }
+    const anchorPinX = (pivotDx - viewPanX) / oldZ;
+    const anchorPinY = (pivotDy - viewPanY) / oldZ;
+
+    viewZoom = clampedZ;
+    viewPanX = pivotDx - anchorPinX * clampedZ;
+    viewPanY = pivotDy - anchorPinY * clampedZ;
+    clampPan();
+    updateZoomUI();
+    drawPinningCanvas();
+  }
+
+  function renderMagnifiedLoupe(pinPt, clientX, clientY) {
+    if (!ui.loupeCanvas || !studioImg.complete || studioImg.naturalWidth === 0) return;
+    const loupeSize = 128;
+    const zoomFactor = 3 * Math.min(2, viewZoom);
+    const pinHalf = loupeSize / (2 * zoomFactor);
+    const imgPtX = pinPt.x / Math.max(1e-6, canvasScale);
+    const imgPtY = pinPt.y / Math.max(1e-6, canvasScale);
+    const srcHalf = pinHalf / Math.max(1e-6, canvasScale);
+
+    ui.loupeCanvas.width = loupeSize;
+    ui.loupeCanvas.height = loupeSize;
+    ui.loupeCanvas.style.display = "block";
+
+    const left = Math.max(10, Math.min(window.innerWidth - loupeSize - 10, clientX - loupeSize - 24));
+    const top = Math.max(10, Math.min(window.innerHeight - loupeSize - 10, clientY - loupeSize - 24));
+    ui.loupeCanvas.style.left = `${left}px`;
+    ui.loupeCanvas.style.top = `${top}px`;
+
+    const ctx = ui.loupeCanvas.getContext("2d");
+    ctx.fillStyle = "#18181B";
+    ctx.fillRect(0, 0, loupeSize, loupeSize);
+    ctx.drawImage(
+      studioImg,
+      imgPtX - srcHalf,
+      imgPtY - srcHalf,
+      srcHalf * 2,
+      srcHalf * 2,
+      0,
+      0,
+      loupeSize,
+      loupeSize
+    );
+
+    const c = loupeSize / 2;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(c - 14, c);
+    ctx.lineTo(c + 14, c);
+    ctx.moveTo(c, c - 14);
+    ctx.lineTo(c, c + 14);
+    ctx.stroke();
+  }
+
+  function hideLoupe() {
+    if (ui.loupeCanvas) ui.loupeCanvas.style.display = "none";
   }
 
   function resetCornersToDefault() {
@@ -51,7 +176,10 @@
     try {
       const w = ui.pinningCanvas.width;
       const h = ui.pinningCanvas.height;
-      const ctx = ui.pinningCanvas.getContext("2d");
+      const off = document.createElement("canvas");
+      off.width = w;
+      off.height = h;
+      const ctx = off.getContext("2d");
       ctx.drawImage(studioImg, 0, 0, w, h);
       const data = ctx.getImageData(0, 0, w, h).data;
 
@@ -92,7 +220,7 @@
         corners = [c0, c1, c2, c3];
       }
     } catch {
-      // ignore if cross-origin fallback needed
+      // ignore if cross-origin
     }
     drawPinningCanvas();
   }
@@ -109,41 +237,47 @@
     ui.pinningCanvas.width = Math.round(w);
     ui.pinningCanvas.height = Math.round(h);
     canvasScale = ui.pinningCanvas.width / Math.max(1, studioImg.width);
+    resetZoom();
     resetCornersToDefault();
     drawPinningCanvas();
   }
 
   function drawPinningCanvas() {
-    if (!ui.pinningCanvas) return;
+    if (!ui.pinningCanvas || !studioImg.complete) return;
     const ctx = ui.pinningCanvas.getContext("2d");
     const pw = ui.pinningCanvas.width;
     const ph = ui.pinningCanvas.height;
+
     ctx.clearRect(0, 0, pw, ph);
-    ctx.drawImage(studioImg, 0, 0, pw, ph);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(studioImg, viewPanX, viewPanY, pw * viewZoom, ph * viewZoom);
 
-    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
-    ctx.fillRect(0, 0, pw, ph);
+    const dPts = corners.map(pinToDisp);
 
+    // Dim area outside polygon cleanly using even-odd fill
     ctx.save();
+    ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
     ctx.beginPath();
-    ctx.moveTo(corners[0].x, corners[0].y);
-    for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
+    ctx.rect(0, 0, pw, ph);
+    ctx.moveTo(dPts[0].x, dPts[0].y);
+    ctx.lineTo(dPts[3].x, dPts[3].y);
+    ctx.lineTo(dPts[2].x, dPts[2].y);
+    ctx.lineTo(dPts[1].x, dPts[1].y);
     ctx.closePath();
-    ctx.clip();
-    ctx.drawImage(studioImg, 0, 0, pw, ph);
+    ctx.fill("evenodd");
     ctx.restore();
 
     ctx.strokeStyle = "#6366f1";
     ctx.lineWidth = 2.5;
     ctx.setLineDash([6, 4]);
     ctx.beginPath();
-    ctx.moveTo(corners[0].x, corners[0].y);
-    for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
+    dPts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
     ctx.closePath();
     ctx.stroke();
     ctx.setLineDash([]);
 
-    corners.forEach((pt, idx) => {
+    dPts.forEach((pt, idx) => {
       const cfg = CORNER_CONFIG[idx];
       const isCur = idx === activeCornerIdx;
       ctx.beginPath();
@@ -340,7 +474,9 @@
     if (!ui.modal) return;
     ui.modal.classList.remove("open");
     document.body.style.overflow = "";
+    hideLoupe();
     activeCornerIdx = -1;
+    isPanning = false;
   }
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -355,6 +491,7 @@
 
     if (ui.resetBtn) {
       ui.resetBtn.addEventListener("click", () => {
+        resetZoom();
         resetCornersToDefault();
         drawPinningCanvas();
         generate3DPreview();
@@ -362,44 +499,98 @@
     }
     if (ui.detectBtn) {
       ui.detectBtn.addEventListener("click", () => {
+        resetZoom();
         autoDetectCanvasEdges();
         generate3DPreview();
       });
     }
+    if (ui.zoomOutBtn && ui.pinningCanvas) {
+      ui.zoomOutBtn.addEventListener("click", () => applyZoomAt(viewZoom / 1.35, ui.pinningCanvas.width / 2, ui.pinningCanvas.height / 2));
+    }
+    if (ui.zoomInBtn && ui.pinningCanvas) {
+      ui.zoomInBtn.addEventListener("click", () => applyZoomAt(viewZoom * 1.35, ui.pinningCanvas.width / 2, ui.pinningCanvas.height / 2));
+    }
+    if (ui.zoomResetBtn) {
+      ui.zoomResetBtn.addEventListener("click", () => {
+        resetZoom();
+        drawPinningCanvas();
+      });
+    }
+
     if (ui.applyCopyBtn) ui.applyCopyBtn.addEventListener("click", () => exportMockup(false));
     if (ui.applyCoverBtn) ui.applyCoverBtn.addEventListener("click", () => exportMockup(true));
 
     if (ui.pinningCanvas) {
-      const getPos = (e) => {
+      const getDispPos = (e) => {
         const rect = ui.pinningCanvas.getBoundingClientRect();
         return {
-          x: ((e.clientX - rect.left) / rect.width) * ui.pinningCanvas.width,
-          y: ((e.clientY - rect.top) / rect.height) * ui.pinningCanvas.height,
+          x: ((e.clientX - rect.left) / Math.max(1, rect.width)) * ui.pinningCanvas.width,
+          y: ((e.clientY - rect.top) / Math.max(1, rect.height)) * ui.pinningCanvas.height,
         };
       };
 
+      ui.pinningCanvas.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const disp = getDispPos(e);
+        const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+        applyZoomAt(viewZoom * factor, disp.x, disp.y);
+      }, { passive: false });
+
       ui.pinningCanvas.addEventListener("pointerdown", (e) => {
-        const p = getPos(e);
-        activeCornerIdx = corners.findIndex((pt) => Math.hypot(pt.x - p.x, pt.y - p.y) <= 28);
-        if (activeCornerIdx !== -1) {
+        const disp = getDispPos(e);
+        let bestIdx = -1;
+        let bestD = Infinity;
+        corners.forEach((pt, idx) => {
+          const dp = pinToDisp(pt);
+          const d = Math.hypot(dp.x - disp.x, dp.y - disp.y);
+          if (d <= 22 && d < bestD) {
+            bestD = d;
+            bestIdx = idx;
+          }
+        });
+
+        if (bestIdx !== -1) {
+          activeCornerIdx = bestIdx;
+          isPanning = false;
+          try { ui.pinningCanvas.setPointerCapture(e.pointerId); } catch {}
+          renderMagnifiedLoupe(corners[bestIdx], e.clientX, e.clientY);
+        } else if (viewZoom > 1.01) {
+          isPanning = true;
+          panStartDx = disp.x;
+          panStartDy = disp.y;
+          panOriginX = viewPanX;
+          panOriginY = viewPanY;
+          ui.pinningCanvas.style.cursor = "grabbing";
           try { ui.pinningCanvas.setPointerCapture(e.pointerId); } catch {}
         }
       });
 
       ui.pinningCanvas.addEventListener("pointermove", (e) => {
-        if (activeCornerIdx === -1) return;
-        const p = getPos(e);
-        corners[activeCornerIdx].x = Math.max(0, Math.min(ui.pinningCanvas.width, p.x));
-        corners[activeCornerIdx].y = Math.max(0, Math.min(ui.pinningCanvas.height, p.y));
-        drawPinningCanvas();
-        generate3DPreview();
+        const disp = getDispPos(e);
+        if (activeCornerIdx !== -1) {
+          const pinPt = dispToPin(disp.x, disp.y);
+          corners[activeCornerIdx] = pinPt;
+          drawPinningCanvas();
+          renderMagnifiedLoupe(pinPt, e.clientX, e.clientY);
+          generate3DPreview();
+        } else if (isPanning) {
+          viewPanX = panOriginX + (disp.x - panStartDx);
+          viewPanY = panOriginY + (disp.y - panStartDy);
+          clampPan();
+          drawPinningCanvas();
+        }
       });
 
       const stop = () => {
         if (activeCornerIdx !== -1) {
           activeCornerIdx = -1;
+          hideLoupe();
           drawPinningCanvas();
           generate3DPreview();
+        }
+        if (isPanning) {
+          isPanning = false;
+          updateZoomUI();
         }
       };
       ui.pinningCanvas.addEventListener("pointerup", stop);

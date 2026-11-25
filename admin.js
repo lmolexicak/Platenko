@@ -298,10 +298,12 @@
 
     refreshCoverAndAlbumUI();
     updateSofaPreview();
+    renderInventory();
   }
 
-  function loadArtworkIntoForm(art) {
+  function loadArtworkIntoForm(art, opts) {
     if (!art) return;
+    const options = opts || {};
     editingId = art.id;
     pendingThumbMap = {};
     pendingRawDataUrl = null;
@@ -327,7 +329,10 @@
 
     refreshCoverAndAlbumUI();
     updateSofaPreview();
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    renderInventory();
+    if (options.scrollTop !== false) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   }
 
   // ---- Non-Destructive 4-Point Perspective Warp (Always creates a copy) ----
@@ -435,6 +440,9 @@
 
     filtered.forEach((art) => {
       const tr = document.createElement("tr");
+      if (editingId && art.id === editingId) {
+        tr.classList.add("is-active");
+      }
       const thumbSrc = toThumbUrl(art.coverImage);
       const dimsLabel = `${art.widthCm || 50} × ${art.heightCm || 70} × ${art.depthCm || 4} cm`;
       const isSearching = Boolean(q);
@@ -601,6 +609,9 @@
         filteredThumbs[pendingRawDataUrl] = pendingThumbMap[pendingRawDataUrl];
       }
 
+      let savedId = editingId;
+      let successMsg = "✓ Zmeny uložené do D1 a R2!";
+
       if (editingId) {
         const payload = {
           title,
@@ -631,7 +642,6 @@
           return;
         }
         if (!resp.ok) throw new Error("HTTP " + resp.status);
-        showStatusMsg("✓ Zmeny uložené do D1 a R2!");
       } else {
         if (albumPhotos.length === 0) {
           showStatusMsg("Pre novú maľbu najprv odfotografuj alebo nahraj obrázok.", true);
@@ -640,6 +650,8 @@
         const slug = slugify(title);
         const folder = `${dateVal}_${slug}-${Date.now().toString(36).slice(-4)}`;
         const newId = `art-${folder}`;
+        savedId = newId;
+        successMsg = "✓ Nová maľba (výrez aj originál) uložená do galérie!";
         const payload = {
           id: newId,
           folder,
@@ -671,11 +683,14 @@
           return;
         }
         if (!resp.ok) throw new Error("HTTP " + resp.status);
-        showStatusMsg("✓ Nová maľba (výrez aj originál) uložená do galérie!");
       }
 
-      resetForm();
       await loadArtworks();
+      const keptArt = savedId ? artworks.find((a) => a.id === savedId) : null;
+      if (keptArt) {
+        loadArtworkIntoForm(keptArt, { scrollTop: false });
+      }
+      showStatusMsg(successMsg);
     } catch (err) {
       showStatusMsg("Chyba uloženia: " + err.message, true);
     } finally {
