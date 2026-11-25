@@ -402,6 +402,25 @@ document.addEventListener("DOMContentLoaded", () => {
     applyFilter("all");
   }
 
+  function normalizeStatus(status) {
+    const s = (status || "").trim().toLowerCase();
+    if (s === "reserved" || s === "rezervovane" || s === "rezervované") {
+      return { key: "reserved", label: "Rezervované", badgeClass: "badge-reserved" };
+    }
+    if (s === "sold" || s === "predane" || s === "predané") {
+      return { key: "sold", label: "Predané", badgeClass: "badge-sold" };
+    }
+    return { key: "available", label: "Dostupné", badgeClass: "badge-available" };
+  }
+
+  function getMaxDimensionCm(dimensionsStr) {
+    if (!dimensionsStr || typeof dimensionsStr !== "string") return null;
+    const nums = dimensionsStr.match(/\d+(?:[.,]\d+)?/g);
+    if (!nums || nums.length === 0) return null;
+    const parsed = nums.slice(0, 2).map(n => parseFloat(n.replace(",", "."))).filter(n => !isNaN(n));
+    return parsed.length > 0 ? Math.max(...parsed) : null;
+  }
+
   // 4. Render Gallery with Pagination & Delete Buttons
   function applyFilter(filter) {
     activeFilter = filter;
@@ -409,11 +428,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
     currentFilteredList = all.filter(item => {
       if (filter === "all") return true;
+      const st = normalizeStatus(item.status).key;
+      if (filter === "available" || filter === "reserved" || filter === "sold") {
+        return st === filter;
+      }
+      if (filter === "size-small" || filter === "size-medium" || filter === "size-large") {
+        const maxDim = getMaxDimensionCm(item.dimensions || "50 × 70 cm");
+        if (!maxDim) return false;
+        if (filter === "size-small") return maxDim < 60;
+        if (filter === "size-medium") return maxDim >= 60 && maxDim <= 100;
+        if (filter === "size-large") return maxDim > 100;
+      }
       if (filter === "2024") return item.year === "2024";
       if (filter === "2023") return item.year === "2023";
       if (filter === "2022") return item.year === "2022";
       if (filter === "multi") return (item.photoCount || (item.detailImages && item.detailImages.length) || 1) >= 3;
-      if (filter === "available") return (item.status || "").toLowerCase() === "available";
       return (item.technique || "").toLowerCase() === filter.toLowerCase();
     });
 
@@ -448,31 +477,26 @@ document.addEventListener("DOMContentLoaded", () => {
       const card = document.createElement("div");
       card.className = "artwork-card";
       card.id = `card-${art.id}`;
-      
-      const badgeClass = (art.status || "").toLowerCase() === "available" ? "badge-available" : "badge-sold";
+
+      const statusInfo = normalizeStatus(art.status);
       const photoCount = art.photoCount || (art.detailImages ? art.detailImages.length : 1);
-      const photoCountHtml = photoCount > 1 
-        ? `<span class="card-photo-count">📷 ${photoCount} fotiek</span>` 
-        : "";
 
       card.innerHTML = `
         <div class="card-image-wrap">
           <button class="card-delete-btn" title="Vymazať túto maľbu z webu" aria-label="Vymazať">✕</button>
           <button class="card-edit-btn" title="Upraviť maľbu (názov, popis, fotky...)" aria-label="Upraviť">✏️</button>
           <img src="${toThumbUrl(art.coverImage)}" alt="${art.title}" loading="lazy" decoding="async">
-          <span class="card-badge ${badgeClass}">${art.status || "Available"}</span>
-          ${photoCountHtml}
         </div>
         <div class="card-details">
-          <div class="card-meta">
-            <span>${art.date || art.year}</span>
-            <span>${art.technique || "Akryl"}</span>
+          <div class="card-title-row">
+            <h3 class="card-title">${art.title}</h3>
+            <span class="status-pill ${statusInfo.badgeClass}">${statusInfo.label}</span>
           </div>
-          <h3 class="card-title">${art.title}</h3>
-          <p class="card-medium">${art.medium || "Akryl na plátne"}</p>
-          <div class="card-footer">
-            <span class="card-dimensions">${art.dimensions || "50 × 70 cm"}</span>
-            <span class="card-action-text">Otvoriť galériu →</span>
+          <div class="card-submeta">
+            <span>${art.dimensions || "50 × 70 cm"}</span>
+            <span>·</span>
+            <span>${art.medium || "Akryl na plátne"}</span>
+            ${photoCount > 1 ? `<span>· ${photoCount} fotiek</span>` : ""}
           </div>
         </div>
       `;
@@ -595,8 +619,9 @@ document.addEventListener("DOMContentLoaded", () => {
     modalYear.textContent = art.date || art.year;
     modalDesc.textContent = art.description || `Séria fotografií originálnej maľby vytvorenej ${art.date}.`;
 
-    modalStatus.textContent = art.status || "Available";
-    modalStatus.className = `card-badge ${(art.status || "").toLowerCase() === 'available' ? 'badge-available' : 'badge-sold'}`;
+    const statusInfo = normalizeStatus(art.status);
+    modalStatus.textContent = statusInfo.label;
+    modalStatus.className = `card-badge ${statusInfo.badgeClass}`;
 
     currentArtworkImages = (art.detailImages && art.detailImages.length > 0)
       ? art.detailImages
@@ -622,7 +647,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Inquire Button Action
     modalInquireBtn.onclick = () => {
-      alert(`Mám záujem o "${art.title}" (${art.dimensions})\n\nV ďalšej fáze projektu toto tlačidlo rovno odošle správu do tvojej schránky!`);
+      const subject = `Záujem o maľbu: ${art.title} (${art.dimensions || "50 × 70 cm"})`;
+      const body = `Dobrý deň,\n\nmám záujem o dielo "${art.title}" (ID: ${art.id}, rozmery: ${art.dimensions || "50 × 70 cm"}).\n\nProsím o informácie o dostupnosti a cene.`;
+      window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     };
 
     modalOverlay.classList.add("open");

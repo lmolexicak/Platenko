@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="sk" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Plátenko | Fluid Art, Airbrush & Contemporary Acrylics</title>
-  <meta name="description" content="Portfolio of original canvas paintings using acrylic pouring, airbrushing, and contemporary brush techniques by Platenko.">
+  <title>Plátenko | Abstraktné akrylové maľby na plátne</title>
+  <meta name="description" content="Portfólio originálnych abstraktných malieb na napnutom plátne — tekutý akryl, holandský pour, airbrush a detailné textúry od Plátenko Akryl.">
   <link rel="icon" type="image/png" href="images/logo_only_IG_transparent.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -27,7 +27,7 @@
         >
         <div class="brand-text">
           <span class="brand-title">Plátenko</span>
-          <span class="brand-subtitle">Original Canvas Artworks</span>
+          <span class="brand-subtitle">Originálne maľby na plátne</span>
         </div>
       </a>
       <div class="nav-actions">
@@ -65,17 +65,19 @@
       <!-- Filter Bar -->
       <div class="filter-bar">
         <button class="filter-btn active" data-filter="all">Všetky maľby</button>
-        <button class="filter-btn" data-filter="2024">Rok 2024</button>
-        <button class="filter-btn" data-filter="2023">Rok 2023</button>
-        <button class="filter-btn" data-filter="2022">Rok 2022</button>
-        <button class="filter-btn" data-filter="multi">Série s detailmi (3+)</button>
-        <button class="filter-btn" data-filter="available">Dostupné kúsky</button>
+        <button class="filter-btn" data-filter="available">Dostupné</button>
+        <button class="filter-btn" data-filter="reserved">Rezervované</button>
+        <button class="filter-btn" data-filter="sold">Predané</button>
+        <span class="filter-divider" aria-hidden="true"></span>
+        <button class="filter-btn" data-filter="size-small">Malé (do 60 cm)</button>
+        <button class="filter-btn" data-filter="size-medium">Stredné (60–100 cm)</button>
+        <button class="filter-btn" data-filter="size-large">Veľké (100+ cm)</button>
       </div>
     </section>
 
     <!-- Gallery Grid -->
     <section class="gallery-grid" id="galleryGrid">
-      <!-- Artworks will be populated dynamically from artworks.js -->
+      <!-- Artworks will be populated dynamically from D1 API -->
     </section>
 
     <!-- Load More Container -->
@@ -87,17 +89,17 @@
     <section class="about-section">
       <div class="about-grid">
         <div class="about-intro">
-          <h2>About the Craft</h2>
+          <h2>O tvorbe</h2>
           <p>
-            Every canvas is a fusion of organic fluidity and deliberate control. Using acrylic pouring methods, pigments naturally interact, flow, and create unique organic cells and textures. Airbrushing and brushwork then introduce depth, light, and sharp contrasting forms.
+            Každé plátno je spojením organickej tekutosti a vedomého zásahu. Akrylové liatie necháva pigmenty prirodzene reagovať a vytvárať jedinečné bunky a štruktúry, zatiaľ čo airbrush a štetec dopĺňajú hĺbku, svetlo a kontrast.
           </p>
           <a href="https://www.instagram.com/platenko.akryl" target="_blank" rel="noopener noreferrer" class="social-link">
-            Follow on Instagram @platenko.akryl ↗
+            Sledovať na Instagrame @platenko.akryl ↗
           </a>
         </div>
         <div class="about-stats" style="color: var(--text-muted); font-size: 0.95rem;">
-          <p style="margin-bottom: 12px;"><strong>Commission Requests:</strong> Have a specific color palette, size, or technique in mind? Custom commissions are welcomed.</p>
-          <p><strong>Shipping & Delivery:</strong> Stretched canvas artworks are carefully varnished with UV protection and packaged securely for worldwide delivery.</p>
+          <p style="margin-bottom: 12px;"><strong>Maľba na mieru:</strong> Máte predstavu o farebnej palete, rozmere alebo technike do svojho interiéru? Zákazková tvorba je možná po dohode.</p>
+          <p><strong>Doručenie a balenie:</strong> Každé dielo na napnutom plátne je ošetrené UV ochranným lakom a bezpečne zabalené pre doručenie.</p>
         </div>
       </div>
     </section>
@@ -264,12 +266,12 @@
         
         <div class="modal-specs">
           <div class="spec-item">
-            <span>Dimensions</span>
+            <span>Rozmery</span>
             <strong id="modalDimensions"></strong>
           </div>
           <div class="spec-item">
-            <span>Surface</span>
-            <strong>Stretched Canvas</strong>
+            <span>Podklad</span>
+            <strong>Napnuté plátno na ráme</strong>
           </div>
         </div>
 
@@ -277,7 +279,7 @@
 
         <div class="modal-actions">
           <button id="modalInquireBtn" class="btn-primary">
-            Inquire About This Piece
+            Mám záujem o toto dielo
           </button>
         </div>
       </div>
@@ -361,7 +363,7 @@
 
   <!-- Footer -->
   <footer class="container">
-    <p>© 2026 Platenko. All rights reserved. Original art by @platenko.akryl</p>
+    <p>© 2026 Plátenko. Všetky práva vyhradené. Originálne diela @platenko.akryl</p>
   </footer>
 
   <!-- Scripts -->
