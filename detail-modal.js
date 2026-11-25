@@ -55,6 +55,9 @@
     el.title = document.getElementById("modalTitle");
     el.meta = document.getElementById("modalHeaderMeta");
     el.status = document.getElementById("modalStatus");
+    el.arBtn = document.getElementById("modalArBtn");
+    el.shareBtn = document.getElementById("modalShareBtn");
+    el.insituArBtn = document.getElementById("insituArLaunchBtn");
     el.tabBtns = Array.from(document.querySelectorAll(".detail-tab-btn"));
     el.tabPanels = Array.from(document.querySelectorAll(".detail-tab-panel"));
 
@@ -597,14 +600,18 @@
     switchTab("detail");
     el.overlay.classList.add("open");
     document.body.style.overflow = "hidden";
+    if (helpers.onOpen) helpers.onOpen(art);
   }
 
   function close() {
     if (!el.overlay) return;
     el.overlay.classList.remove("open");
-    document.body.style.overflow = "";
+    if (!window.Platenko3DGallery || !window.Platenko3DGallery.isOpen()) {
+      document.body.style.overflow = "";
+    }
     setRakingActive(false);
     resetZoom();
+    if (helpers.onClose) helpers.onClose();
   }
 
   function isOpen() {
@@ -620,6 +627,22 @@
     el.overlay.addEventListener("click", (e) => {
       if (e.target === el.overlay) close();
     });
+
+    if (el.shareBtn) {
+      el.shareBtn.addEventListener("click", () => {
+        if (currentArt && helpers.onShare) helpers.onShare(currentArt, el.shareBtn);
+      });
+    }
+    if (el.arBtn) {
+      el.arBtn.addEventListener("click", () => {
+        if (currentArt && helpers.onOpenAR) helpers.onOpenAR(currentArt);
+      });
+    }
+    if (el.insituArBtn) {
+      el.insituArBtn.addEventListener("click", () => {
+        if (currentArt && helpers.onOpenAR) helpers.onOpenAR(currentArt);
+      });
+    }
 
     // Tab buttons
     el.tabBtns.forEach((btn) => {

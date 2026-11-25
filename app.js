@@ -70,6 +70,104 @@ document.addEventListener("DOMContentLoaded", () => {
     return url + (url.includes("?") ? "&" : "?") + "size=thumb";
   }
 
+  // Top View Switcher & Toast
+  const navViewCatalog = document.getElementById("navViewCatalog");
+  const navView3D = document.getElementById("navView3D");
+  const platenkoToast = document.getElementById("platenkoToast");
+  let toastTimer = null;
+
+  function showToast(message) {
+    if (!platenkoToast) return;
+    platenkoToast.textContent = message;
+    platenkoToast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      platenkoToast.classList.remove("show");
+    }, 2400);
+  }
+
+  function setActiveNavTab(mode) {
+    if (navViewCatalog) {
+      navViewCatalog.classList.toggle("active", mode === "catalog");
+      navViewCatalog.setAttribute("aria-pressed", mode === "catalog" ? "true" : "false");
+    }
+    if (navView3D) {
+      navView3D.classList.toggle("active", mode === "3d");
+      navView3D.setAttribute("aria-pressed", mode === "3d" ? "true" : "false");
+    }
+  }
+
+  function syncUrlParams(params) {
+    try {
+      const url = new URL(window.location.href);
+      url.search = "";
+      if (params && params.view) url.searchParams.set("view", params.view);
+      if (params && params.dielo) url.searchParams.set("dielo", params.dielo);
+      if (params && params.ar) url.searchParams.set("ar", params.ar);
+      history.replaceState(null, "", url.pathname + url.search + url.hash);
+    } catch {
+      // ignore on restricted environments
+    }
+  }
+
+  function buildShareUrl(artId, mode) {
+    const url = new URL(window.location.href);
+    url.search = "";
+    url.hash = "";
+    if (mode === "3d") url.searchParams.set("view", "3d");
+    if (artId) url.searchParams.set("dielo", artId);
+    if (mode === "ar") url.searchParams.set("ar", "1");
+    return url.toString();
+  }
+
+  async function shareArtwork(art, mode, triggerBtn) {
+    if (!art) return;
+    const url = buildShareUrl(art.id, mode || "detail");
+    const title = `Plátenko · ${art.title || "Dielo"}`;
+    const text = `Pozrite si originálnu maľbu "${art.title || "Plátenko"}" (${art.dimensions || "akryl na plátne"})`;
+
+    const isMobileTouch = /Android|iPhone|iPad|iPod|Mobi/i.test(navigator.userAgent || "") ||
+      ((navigator.maxTouchPoints || 0) > 1 && window.innerWidth <= 1024);
+
+    if (isMobileTouch && navigator.share) {
+      try {
+        await navigator.share({ title, text, url });
+        return;
+      } catch (err) {
+        if (err && err.name === "AbortError") return;
+      }
+    }
+
+    let copied = false;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(url);
+        copied = true;
+      } catch {}
+    }
+    if (!copied) {
+      const tmp = document.createElement("textarea");
+      tmp.value = url;
+      tmp.style.position = "fixed";
+      tmp.style.opacity = "0";
+      document.body.appendChild(tmp);
+      tmp.select();
+      try {
+        copied = document.execCommand("copy");
+      } catch {}
+      tmp.remove();
+    }
+
+    showToast("Odkaz skopírovaný");
+    if (triggerBtn) {
+      const origHtml = triggerBtn.innerHTML;
+      triggerBtn.innerHTML = "✓ Odkaz skopírovaný";
+      setTimeout(() => {
+        triggerBtn.innerHTML = origHtml;
+      }, 2200);
+    }
+  }
+
   // Modal navigation state
   let currentArtworkImages = [];
   let currentImageIndex = 0;
@@ -400,6 +498,28 @@ document.addEventListener("DOMContentLoaded", () => {
     // Render after data is ready
     updateAdminStats();
     applyFilter("all");
+    handleInitialDeepLink();
+  }
+
+  function handleInitialDeepLink() {
+    const params = new URLSearchParams(window.location.search);
+    const dieloId = params.get("dielo");
+    const viewMode = params.get("view");
+    const arFlag = params.get("ar");
+    const list = getArtworksList();
+    const targetArt = dieloId ? list.find((a) => a.id === dieloId) : null;
+
+    if (viewMode === "3d") {
+      open3DGallery(dieloId || null);
+      return;
+    }
+    if (targetArt && arFlag === "1") {
+      openARViewer(targetArt);
+      return;
+    }
+    if (targetArt) {
+      openArtworkModal(targetArt);
+    }
   }
 
   function normalizeStatus(status) {
@@ -601,7 +721,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // 6. Modal Detail Delegation (Phase 2: Deep Zoom, Raking Light, In-Situ, Info)
+  // 6. Modal Detail, AR & 3D Gallery Delegation
   function openArtworkModal(art) {
     currentArtworkImages = (art.detailImages && art.detailImages.length > 0)
       ? art.detailImages
@@ -609,9 +729,92 @@ document.addEventListener("DOMContentLoaded", () => {
     currentImageIndex = 0;
 
     if (window.PlatenkoDetailModal) {
-      window.PlatenkoDetailModal.open(art, { toThumbUrl, normalizeStatus });
+      window.PlatenkoDetailModal.open(art, {
+        toThumbUrl,
+        normalizeStatus,
+        onOpen: (openedArt) => {
+          const in3D = window.Platenko3DGallery && window.Platenko3DGallery.isOpen();
+          syncUrlParams({ view: in3D ? "3d" : null, dielo: openedArt.id });
+        },
+        onClose: () => {
+          const in3D = window.Platenko3DGallery && window.Platenko3DGallery.isOpen();
+          if (in3D) {
+            syncUrlParams({ view: "3d", dielo: art.id });
+          } else {
+            syncUrlParams({});
+          }
+        },
+        onShare: (sharedArt, btn) => shareArtwork(sharedArt, "detail", btn),
+        onOpenAR: (arArt) => openARViewer(arArt),
+      });
     }
   }
+
+  function openARViewer(art) {
+    if (!art || !window.PlatenkoARViewer) return;
+    window.PlatenkoARViewer.open(art, getArtworksList(), {
+      onOpen: (openedArt) => {
+        syncUrlParams({ dielo: openedArt.id, ar: "1" });
+      },
+      onClose: () => {
+        const in3D = window.Platenko3DGallery && window.Platenko3DGallery.isOpen();
+        const modalOpen = window.PlatenkoDetailModal && window.PlatenkoDetailModal.isOpen();
+        if (in3D) {
+          syncUrlParams({ view: "3d", dielo: art.id });
+        } else if (modalOpen) {
+          syncUrlParams({ dielo: art.id });
+        } else {
+          syncUrlParams({});
+        }
+      },
+      onShare: (sharedArt, btn) => shareArtwork(sharedArt, "ar", btn),
+    });
+  }
+
+  function open3DGallery(initialArtworkId) {
+    if (!window.Platenko3DGallery) return;
+    setActiveNavTab("3d");
+    syncUrlParams({ view: "3d", dielo: initialArtworkId || null });
+    window.Platenko3DGallery.open(getArtworksList(), {
+      initialArtworkId: initialArtworkId || null,
+      onFocusArtwork: (focusedArt) => {
+        syncUrlParams({ view: "3d", dielo: focusedArt.id });
+      },
+      onLeaveArtwork: () => {
+        syncUrlParams({ view: "3d" });
+      },
+      onOpenDetail: (detailArt) => openArtworkModal(detailArt),
+      onOpenAR: (arArt) => openARViewer(arArt),
+      onShare: (sharedArt, btn) => shareArtwork(sharedArt, "3d", btn),
+      onClose: () => {
+        setActiveNavTab("catalog");
+        syncUrlParams({});
+      },
+    });
+  }
+
+  if (navViewCatalog) {
+    navViewCatalog.addEventListener("click", () => {
+      if (window.Platenko3DGallery && window.Platenko3DGallery.isOpen()) {
+        window.Platenko3DGallery.close();
+      }
+      setActiveNavTab("catalog");
+      syncUrlParams({});
+    });
+  }
+  if (navView3D) {
+    navView3D.addEventListener("click", () => {
+      open3DGallery(null);
+    });
+  }
+
+  window.PlatenkoApp = {
+    shareArtwork,
+    showToast,
+    buildShareUrl,
+    openARViewer,
+    open3DGallery,
+  };
 
   // ============================================================
   // EDIT MODAL LOGIC

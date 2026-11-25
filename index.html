@@ -2,13 +2,21 @@
 <html lang="sk" data-theme="light">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Plátenko | Abstraktné akrylové maľby na plátne</title>
   <meta name="description" content="Portfólio originálnych abstraktných malieb na napnutom plátne — tekutý akryl, holandský pour, airbrush a detailné textúry od Plátenko Akryl.">
   <link rel="icon" type="image/png" href="images/logo_only_IG_transparent.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -30,6 +38,10 @@
           <span class="brand-subtitle">Originálne maľby na plátne</span>
         </div>
       </a>
+      <nav class="view-switcher" aria-label="Prepínanie zobrazenia">
+        <button type="button" id="navViewCatalog" class="view-switch-btn active" aria-pressed="true">Katalóg</button>
+        <button type="button" id="navView3D" class="view-switch-btn" aria-pressed="false">3D Galéria</button>
+      </nav>
       <div class="nav-actions">
         <button id="themeToggle" class="theme-toggle-btn" title="Prepnúť svetlý / tmavý režim">
           🌙 <span>Tmavý</span>
@@ -257,6 +269,12 @@
           <span id="modalHeaderMeta" class="detail-header-meta"></span>
         </div>
         <div class="detail-header-right">
+          <button type="button" id="modalArBtn" class="detail-header-action-btn" title="Vyskúšať maľbu na stene v mierke 1:1 (AR)">
+            📱 <span class="action-btn-label">Vyskúšať na stene (AR)</span>
+          </button>
+          <button type="button" id="modalShareBtn" class="detail-header-action-btn" title="Zdieľať priamy odkaz na toto dielo">
+            🔗 <span class="action-btn-label">Zdieľať</span>
+          </button>
           <span id="modalStatus" class="status-pill"></span>
           <button class="modal-close-btn detail-close-btn" id="modalCloseBtn" aria-label="Zavrieť">✕</button>
         </div>
@@ -384,6 +402,9 @@
             <div class="insitu-readout" id="insituScaleReadout">
               Obraz 50 × 70 × 4 cm · Stred 145 cm nad podlahou
             </div>
+            <button type="button" id="insituArLaunchBtn" class="detail-tool-btn insitu-ar-btn">
+              📱 Vyskúšať na mojej stene (AR 1:1)
+            </button>
           </div>
         </div>
       </section>
@@ -540,6 +561,179 @@
     </div>
   </div>
 
+  <!-- AR Wall Preview Modal (Desktop QR + Mobile Launcher) -->
+  <div class="modal-overlay ar-modal-overlay" id="arModal" role="dialog" aria-modal="true" aria-labelledby="arArtTitle">
+    <div class="ar-modal-box">
+      <button class="modal-close-btn" id="arModalCloseBtn" aria-label="Zavrieť">✕</button>
+      <div class="ar-modal-art-header">
+        <img id="arArtThumb" src="" alt="Náhľad diela" class="ar-art-thumb">
+        <div>
+          <span class="ar-eyebrow">Rozšírená realita · Mierka 1:1</span>
+          <h2 id="arArtTitle" class="ar-modal-title"></h2>
+          <span id="arArtDims" class="status-pill badge-available"></span>
+        </div>
+      </div>
+
+      <div id="arQrBox" class="ar-qr-box">
+        <div class="ar-qr-frame">
+          <canvas id="arQrCanvas" width="220" height="220"></canvas>
+          <img id="arQrFallbackImg" alt="QR kód pre AR náhľad" style="display: none;">
+        </div>
+        <p class="ar-qr-hint">
+          Naskenujte QR kód fotoaparátom v telefóne (iPhone alebo Android) a umiestnite obraz priamo na svoju stenu v skutočnej veľkosti 1:1.
+        </p>
+      </div>
+
+      <div id="arMobileActions" class="ar-mobile-actions">
+        <button type="button" id="arLaunchWebXRBtn" class="btn-primary ar-launch-btn" style="display: none;">
+          📱 Spustiť WebXR AR na stene (1:1)
+        </button>
+        <button type="button" id="arLaunchIOSBtn" class="btn-primary ar-launch-btn" style="display: none;">
+          📱 Spustiť Apple AR Quick Look (1:1)
+        </button>
+        <button type="button" id="arLaunchFallbackBtn" class="btn-secondary ar-launch-btn">
+          📷 Vyskúšať kamerový náhľad (kalibrácia kartou 1:1)
+        </button>
+        <button type="button" id="arCopyLinkBtn" class="btn-secondary ar-launch-btn">
+          🔗 Skopírovať AR odkaz
+        </button>
+      </div>
+
+      <p id="arStatusText" class="ar-status-text"></p>
+    </div>
+  </div>
+
+  <!-- Full-Screen Live AR Overlay (WebXR DOM Overlay & Tier 3 Camera Fallback) -->
+  <div id="arLiveOverlay" class="ar-live-overlay" hidden>
+    <video id="arCameraVideo" class="ar-camera-video" autoplay playsinline muted></video>
+    <div id="arWebXRCanvasHost" class="ar-webxr-canvas-host"></div>
+
+    <!-- Tier 3 Interactive Fallback Stage -->
+    <div id="arFallbackStage" class="ar-fallback-stage" hidden>
+      <div id="arFallbackCluster" class="ar-fallback-cluster"></div>
+    </div>
+
+    <!-- Top AR HUD -->
+    <div class="ar-hud-top">
+      <div id="arScaleBadge" class="ar-scale-badge">Mierka 1:1 uzamknutá</div>
+      <div class="ar-hud-top-actions">
+        <button type="button" id="arCalibBtn" class="ar-hud-btn" style="display: none;">
+          💳 Kalibrovať kartou (1:1)
+        </button>
+        <button type="button" id="arRulerToggleBtn" class="ar-hud-btn" aria-pressed="false">
+          📏 Zobraziť pravítko
+        </button>
+        <button type="button" id="arAddArtBtn" class="ar-hud-btn">
+          ＋ Pridať ďalší obraz
+        </button>
+        <button type="button" id="arLiveCloseBtn" class="ar-hud-btn ar-hud-close" aria-label="Zavrieť AR">
+          ✕ Zavrieť
+        </button>
+      </div>
+    </div>
+
+    <!-- WebXR / Fallback Placement Hint & Tilt Controls -->
+    <div id="arGuidanceBar" class="ar-guidance-bar">
+      <span id="arGuidanceText">Namierte kameru na zvislú stenu a ťuknutím zaveste obraz.</span>
+      <div id="arTiltControls" class="ar-tilt-controls" style="display: none;">
+        <label>Natočenie X <input type="range" id="arTiltX" min="-35" max="35" step="1" value="0"></label>
+        <label>Náklon Y <input type="range" id="arTiltY" min="-25" max="25" step="1" value="0"></label>
+      </div>
+    </div>
+
+    <!-- 1-Tap ISO Payment Card Calibration Overlay (8.56 × 5.40 cm) -->
+    <div id="arCardCalibOverlay" class="ar-card-calib-overlay" hidden>
+      <div class="ar-card-calib-box">
+        <p class="ar-calib-title">Kalibrácia mierky 1:1 platobnou kartou (8,56 × 5,40 cm)</p>
+        <p class="ar-calib-desc">Priložte bežnú platobnú kartu k stene a nastavte rámik presne na jej šírku:</p>
+        <div class="ar-card-guide-stage">
+          <div id="arCardGuide" class="ar-card-guide">
+            <span>PLATOBNÁ KARTA · 8,56 × 5,40 cm</span>
+          </div>
+        </div>
+        <div class="ar-calib-slider-row">
+          <input type="range" id="arCardScaleRange" min="110" max="360" step="1" value="210">
+          <button type="button" id="arCardConfirmBtn" class="btn-primary">✓ Potvrdiť mierku 1:1</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Diptych / Triptych "Pridať ďalší obraz" Drawer -->
+    <div id="arAddDrawer" class="ar-add-drawer" hidden>
+      <div class="ar-add-drawer-head">
+        <strong>Zostava na stene (max. 3 obrazy)</strong>
+        <div class="ar-spacing-group">
+          <span>Medzera:</span>
+          <button type="button" class="ar-spacing-chip" data-spacing="5">5 cm</button>
+          <button type="button" class="ar-spacing-chip active" data-spacing="8">8 cm</button>
+          <button type="button" class="ar-spacing-chip" data-spacing="12">12 cm</button>
+          <button type="button" id="arAddDrawerCloseBtn" class="ar-drawer-close" aria-label="Zavrieť zásuvku">✕</button>
+        </div>
+      </div>
+      <div id="arActiveStackList" class="ar-active-stack-list"></div>
+      <div id="arAddArtGrid" class="ar-add-art-grid"></div>
+    </div>
+  </div>
+
+  <!-- Minimalist 3D Virtual Gallery Shell (Phases 3 & 4) -->
+  <div id="gallery3dRoot" class="g3d-root" hidden aria-label="3D Virtuálna Galéria">
+    <div id="gallery3dCanvasHost" class="g3d-canvas-host"></div>
+
+    <!-- Phase 4 Pixel-Aligned 2D Hi-Res Crossfade Overlay -->
+    <div id="gallery3dCrossfadeLayer" class="g3d-crossfade-layer" aria-hidden="true">
+      <img id="gallery3dCrossfadeImg" src="" alt="" crossorigin="anonymous">
+    </div>
+
+    <!-- Loading Indicator -->
+    <div id="gallery3dLoading" class="g3d-loading" hidden>
+      <div class="g3d-loading-spinner"></div>
+      <p>Pripravujem 3D galériu…</p>
+    </div>
+
+    <!-- Top Controls Bar -->
+    <div id="gallery3dTopBar" class="g3d-top-bar">
+      <div class="g3d-top-left">
+        <button type="button" id="g3dBackBtn" class="g3d-pill-btn">← Katalóg</button>
+        <span id="g3dRoomBadge" class="g3d-room-badge">Sála 1</span>
+      </div>
+      <div class="g3d-top-right">
+        <button type="button" id="g3dMobileMenuBtn" class="g3d-pill-btn g3d-mobile-menu-btn" aria-expanded="false" aria-label="Menu 3D galérie">☰</button>
+        <div id="g3dTopControls" class="g3d-top-controls">
+          <button type="button" id="g3dTourBtn" class="g3d-pill-btn g3d-tour-btn">▶ Automatická prehliadka</button>
+          <button type="button" id="g3dFullscreenBtn" class="g3d-pill-btn" title="Celá obrazovka" aria-label="Celá obrazovka">⛶</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Prev / Next Artwork Arrows -->
+    <div id="gallery3dNavBar" class="g3d-nav-arrows">
+      <button type="button" id="g3dPrevBtn" class="g3d-arrow-btn prev" aria-label="Predchádzajúce dielo" title="Predchádzajúce dielo">‹</button>
+      <button type="button" id="g3dNextBtn" class="g3d-arrow-btn next" aria-label="Ďalšie dielo" title="Ďalšie dielo">›</button>
+    </div>
+
+    <!-- Phase 4 Minimal Floating Plaque (visible once settled on artwork) -->
+    <div id="gallery3dPlaque" class="g3d-plaque" hidden>
+      <div class="g3d-plaque-info">
+        <h3 id="g3dPlaqueTitle" class="g3d-plaque-title"></h3>
+        <span id="g3dPlaqueMeta" class="g3d-plaque-meta"></span>
+      </div>
+      <div class="g3d-plaque-actions">
+        <button type="button" id="g3dDetailBtn" class="g3d-plaque-btn primary">Detail &amp; Mierka</button>
+        <button type="button" id="g3dArBtn" class="g3d-plaque-btn">Vyskúšať v AR</button>
+        <button type="button" id="g3dShareBtn" class="g3d-plaque-btn">Zdieľať</button>
+      </div>
+    </div>
+
+    <!-- Phase 3 Minimal Bottom-Left Guided Tour Pill -->
+    <div id="gallery3dTourPill" class="g3d-tour-pill" hidden>
+      <button type="button" id="g3dStopTourBtn" class="g3d-stop-tour-btn">■ Stop Tour</button>
+      <span id="g3dTourCounter" class="g3d-tour-counter">#1/1</span>
+    </div>
+  </div>
+
+  <!-- Global Subtle Toast Feedback -->
+  <div id="platenkoToast" class="platenko-toast" role="status" aria-live="polite"></div>
+
   <!-- Footer -->
   <footer class="container">
     <p>© 2026 Plátenko. Všetky práva vyhradené. Originálne diela @platenko.akryl</p>
@@ -548,6 +742,8 @@
   <!-- Scripts -->
   <script src="artworks.js"></script>
   <script src="detail-modal.js"></script>
+  <script src="ar-viewer.js"></script>
+  <script src="gallery-3d.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
