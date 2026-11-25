@@ -55,6 +55,7 @@
     el.title = document.getElementById("modalTitle");
     el.meta = document.getElementById("modalHeaderMeta");
     el.status = document.getElementById("modalStatus");
+    el.editCmsLink = document.getElementById("modalEditCmsLink");
     el.arBtn = document.getElementById("modalArBtn");
     el.shareBtn = document.getElementById("modalShareBtn");
     el.insituArBtn = document.getElementById("insituArLaunchBtn");
@@ -550,6 +551,14 @@
     if (el.status) {
       el.status.textContent = statusInfo.label;
       el.status.className = `status-pill ${statusInfo.badgeClass}`;
+    }
+    if (el.editCmsLink) {
+      if (helpers.isAuthenticated) {
+        el.editCmsLink.href = `/admin?edit=${encodeURIComponent(art.id)}`;
+        el.editCmsLink.style.display = "inline-flex";
+      } else {
+        el.editCmsLink.style.display = "none";
+      }
     }
 
     // Images (full-res main, ?size=thumb strip)

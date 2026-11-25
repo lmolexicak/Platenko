@@ -1,7 +1,9 @@
 /**
- * Platenko Admin CMS (/admin)
- * Real D1 + PBKDF2 Session Auth, Mobile Camera Capture,
- * 4-Point Perspective Homography, Live 220cm Sofa Scale Preview & Inventory Reordering.
+ * Platenko Unified Admin CMS (/admin)
+ * - D1 + PBKDF2 Session Auth
+ * - Non-destructive 4-Point Perspective Crop (always preserves original & creates a copy)
+ * - Album Photo Manager (set cover, crop-to-copy, 3D Cover Studio copy, add/remove photos)
+ * - Live 220 cm Sofa Scale Preview, Dimensions, Metadata & Inventory Reordering
  */
 (function () {
   "use strict";
@@ -9,11 +11,10 @@
   let artworks = [];
   let editingId = null;
 
-  // Pending image buffers when user captures/uploads or re-warps a cover
-  let pendingHiresDataUrl = null;
-  let pendingThumbDataUrl = null;
+  // Album photos for currently edited/new artwork (existing relative URLs or new data:image/*)
+  let albumPhotos = [];
+  let pendingThumbMap = {}; // hiresDataUrl -> 600px thumbDataUrl
   let pendingRawDataUrl = null;
-  let currentCoverUrl = "";
   let currentRawUrl = "";
 
   const dom = {};
@@ -41,6 +42,13 @@
     dom.coverPreview = document.getElementById("admCoverPreview");
     dom.coverSourceTag = document.getElementById("admCoverSourceTag");
     dom.rewarpBtn = document.getElementById("admRewarpBtn");
+    dom.open3DCoverBtn = document.getElementById("admOpen3DCoverBtn");
+
+    dom.albumSection = document.getElementById("admAlbumPhotosSection");
+    dom.photoCount = document.getElementById("admPhotoCount");
+    dom.photoGrid = document.getElementById("admPhotoGrid");
+    dom.addPhotosBtn = document.getElementById("admAddPhotosBtn");
+    dom.addPhotosInput = document.getElementById("admAddPhotosInput");
 
     dom.width = document.getElementById("admWidth");
     dom.height = document.getElementById("admHeight");
@@ -75,6 +83,55 @@
     return url + (url.includes("?") ? "&" : "?") + "size=thumb";
   }
 
+  function createThumbDataUrlFromImg(img, maxDim = 600, quality = 0.8) {
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    const maxSide = Math.max(w, h);
+    if (!maxSide) return null;
+    const scale = maxSide > maxDim ? maxDim / maxSide : 1;
+    const tw = Math.max(1, Math.round(w * scale));
+    const th = Math.max(1, Math.round(h * scale));
+    const c = document.createElement("canvas");
+    c.width = tw;
+    c.height = th;
+    const ctx = c.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, 0, 0, tw, th);
+    return c.toDataURL("image/jpeg", quality);
+  }
+
+  function fileToPreparedDataUrls(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = reject;
+      reader.onload = () => {
+        const srcUrl = reader.result;
+        const img = new Image();
+        img.onerror = reject;
+        img.onload = () => {
+          const maxHires = 2000;
+          const maxSide = Math.max(img.naturalWidth, img.naturalHeight);
+          const sc = maxSide > maxHires ? maxHires / maxSide : 1;
+          const w = Math.max(1, Math.round(img.naturalWidth * sc));
+          const h = Math.max(1, Math.round(img.naturalHeight * sc));
+          const c = document.createElement("canvas");
+          c.width = w;
+          c.height = h;
+          const ctx = c.getContext("2d");
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(img, 0, 0, w, h);
+          const hiresDataUrl = c.toDataURL("image/jpeg", 0.9);
+          const thumbDataUrl = createThumbDataUrlFromImg(img, 600, 0.8);
+          resolve({ hiresDataUrl, thumbDataUrl });
+        };
+        img.src = srcUrl;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
   function showStatusMsg(text, isError = false) {
     if (!dom.statusMsg) return;
     dom.statusMsg.textContent = text;
@@ -83,7 +140,7 @@
     if (!isError) {
       setTimeout(() => {
         if (dom.statusMsg.textContent === text) dom.statusMsg.style.display = "none";
-      }, 4000);
+      }, 4500);
     }
   }
 
@@ -144,13 +201,87 @@
     }
   }
 
+  // ---- Album Photo Grid & Preview Refresh ----
+  function refreshCoverAndAlbumUI(statusHint) {
+    const coverSrc = albumPhotos[0] || "";
+    if (coverSrc && dom.previewRow) {
+      dom.coverPreview.src = coverSrc.startsWith("data:")
+        ? (pendingThumbMap[coverSrc] || coverSrc)
+        : toThumbUrl(coverSrc);
+      if (statusHint) {
+        dom.coverSourceTag.textContent = statusHint;
+      } else if (coverSrc.startsWith("data:")) {
+        dom.coverSourceTag.textContent = "✨ Upravená kópia ako titulná (pôvodná fotka ostáva v albume)";
+      } else {
+        dom.coverSourceTag.textContent = currentRawUrl ? "✓ Zachovaný pôvodný originál" : "Aktuálna titulná fotka";
+      }
+      dom.previewRow.style.display = "flex";
+    } else if (dom.previewRow) {
+      dom.previewRow.style.display = "none";
+    }
+
+    if (!dom.albumSection || !dom.photoGrid) return;
+    if (albumPhotos.length === 0) {
+      dom.albumSection.style.display = "none";
+      dom.photoGrid.innerHTML = "";
+      return;
+    }
+
+    dom.albumSection.style.display = "block";
+    if (dom.photoCount) dom.photoCount.textContent = `(${albumPhotos.length})`;
+    dom.photoGrid.innerHTML = "";
+
+    albumPhotos.forEach((url, idx) => {
+      const card = document.createElement("div");
+      card.className = `adm-photo-item${idx === 0 ? " is-cover" : ""}`;
+      const thumbSrc = url.startsWith("data:") ? (pendingThumbMap[url] || url) : toThumbUrl(url);
+      card.innerHTML = `
+        <img src="${thumbSrc}" alt="Foto ${idx + 1}" loading="lazy" decoding="async" title="Kliknutím nastavíš ako Titulnú">
+        ${idx === 0 ? '<span class="adm-photo-badge">Titulná</span>' : ""}
+        <div class="adm-photo-tools">
+          <button type="button" class="adm-photo-tool" data-action="crop" title="4-bodový orez (vytvorí kópiu)">📐</button>
+          <button type="button" class="adm-photo-tool" data-action="cover3d" title="3D Cover Studio (vytvorí kópiu)">✨</button>
+          <button type="button" class="adm-photo-tool danger" data-action="remove" title="Odstrániť z albumu">✕</button>
+        </div>
+      `;
+
+      card.querySelector("img").addEventListener("click", () => {
+        if (idx === 0) return;
+        const picked = albumPhotos.splice(idx, 1)[0];
+        albumPhotos.unshift(picked);
+        refreshCoverAndAlbumUI("✓ Zvolená nová titulná fotka (klikni na Uložiť)");
+      });
+
+      card.querySelector('[data-action="crop"]').addEventListener("click", (e) => {
+        e.stopPropagation();
+        openWarpForSource(url, false);
+      });
+
+      card.querySelector('[data-action="cover3d"]').addEventListener("click", (e) => {
+        e.stopPropagation();
+        openCoverStudioForSource(url);
+      });
+
+      card.querySelector('[data-action="remove"]').addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (albumPhotos.length <= 1) {
+          alert("V albume musí zostať aspoň jedna fotografia.");
+          return;
+        }
+        albumPhotos.splice(idx, 1);
+        refreshCoverAndAlbumUI("Fotka odstránená z albumu (potvrď tlačidlom Uložiť)");
+      });
+
+      dom.photoGrid.appendChild(card);
+    });
+  }
+
   // ---- Form Reset / Populate ----
   function resetForm() {
     editingId = null;
-    pendingHiresDataUrl = null;
-    pendingThumbDataUrl = null;
+    albumPhotos = [];
+    pendingThumbMap = {};
     pendingRawDataUrl = null;
-    currentCoverUrl = "";
     currentRawUrl = "";
 
     if (dom.formHeading) dom.formHeading.textContent = "➕ Pridať novú maľbu";
@@ -163,20 +294,21 @@
     if (dom.status) dom.status.value = "Available";
     if (dom.date) dom.date.value = new Date().toISOString().slice(0, 10);
     if (dom.instaTestLink) dom.instaTestLink.href = "https://www.instagram.com/platenko.akryl";
-    if (dom.previewRow) dom.previewRow.style.display = "none";
     if (dom.statusMsg) dom.statusMsg.style.display = "none";
 
+    refreshCoverAndAlbumUI();
     updateSofaPreview();
   }
 
   function loadArtworkIntoForm(art) {
     if (!art) return;
     editingId = art.id;
-    pendingHiresDataUrl = null;
-    pendingThumbDataUrl = null;
+    pendingThumbMap = {};
     pendingRawDataUrl = null;
-    currentCoverUrl = art.coverImage || "";
     currentRawUrl = art.rawImage || "";
+    albumPhotos = (art.detailImages && art.detailImages.length > 0)
+      ? [...art.detailImages]
+      : (art.coverImage ? [art.coverImage] : []);
 
     if (dom.formHeading) dom.formHeading.textContent = `✏️ Upraviť: ${art.title}`;
     dom.title.value = art.title || "";
@@ -193,21 +325,14 @@
       dom.instaTestLink.href = (art.instagramUrl && art.instagramUrl.trim()) || "https://www.instagram.com/platenko.akryl";
     }
 
-    if (currentCoverUrl && dom.previewRow) {
-      dom.coverPreview.src = toThumbUrl(currentCoverUrl);
-      dom.coverSourceTag.textContent = currentRawUrl ? "✓ Zachovaný pôvodný originál pre re-orez" : "Aktuálna titulná fotka";
-      dom.previewRow.style.display = "flex";
-    } else if (dom.previewRow) {
-      dom.previewRow.style.display = "none";
-    }
-
+    refreshCoverAndAlbumUI();
     updateSofaPreview();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  // ---- Image Capture / Upload -> Auto Open 4-Point Perspective Tool ----
+  // ---- Non-Destructive 4-Point Perspective Warp (Always creates a copy) ----
   function openWarpForSource(src, isNewUpload) {
-    if (!window.PlatenkoPerspectiveWarp) return;
+    if (!window.PlatenkoPerspectiveWarp || !src) return;
     const w = Math.max(10, parseFloat(dom.width.value) || 50);
     const h = Math.max(10, parseFloat(dom.height.value) || 70);
 
@@ -216,16 +341,61 @@
       widthCm: w,
       heightCm: h,
       isNewUpload,
-      onApply: ({ hiresDataUrl, thumbDataUrl, rawDataUrl }) => {
-        pendingHiresDataUrl = hiresDataUrl;
-        pendingThumbDataUrl = thumbDataUrl;
-        if (rawDataUrl) pendingRawDataUrl = rawDataUrl;
+      onSwapDims: (nw, nh) => {
+        if (dom.width) dom.width.value = nw;
+        if (dom.height) dom.height.value = nh;
+        updateSofaPreview();
+      },
+      onApply: ({ hiresDataUrl, thumbDataUrl, rawDataUrl, rawThumbDataUrl }) => {
+        if (thumbDataUrl) pendingThumbMap[hiresDataUrl] = thumbDataUrl;
 
-        if (dom.coverPreview && dom.previewRow) {
-          dom.coverPreview.src = thumbDataUrl || hiresDataUrl;
-          dom.coverSourceTag.textContent = "✨ Vyrovnané (pripravené na uloženie do cloudu)";
-          dom.previewRow.style.display = "flex";
+        if (isNewUpload) {
+          if (!editingId) {
+            // Brand-new artwork: cropped copy becomes cover (index 0); original raw will be saved + appended by worker
+            albumPhotos = [hiresDataUrl];
+            pendingRawDataUrl = rawDataUrl || null;
+            if (rawDataUrl && rawThumbDataUrl) pendingThumbMap[rawDataUrl] = rawThumbDataUrl;
+          } else {
+            // Adding a newly photographed/uploaded image into existing album: keep original raw + prepend crop copy!
+            if (rawDataUrl && !albumPhotos.includes(rawDataUrl)) {
+              if (rawThumbDataUrl) pendingThumbMap[rawDataUrl] = rawThumbDataUrl;
+              albumPhotos.unshift(rawDataUrl);
+            }
+            albumPhotos.unshift(hiresDataUrl);
+            if (!currentRawUrl && !pendingRawDataUrl && rawDataUrl) {
+              pendingRawDataUrl = rawDataUrl;
+            }
+          }
+        } else {
+          // Non-destructive crop of existing photo in album: ALWAYS prepend new copy, keeping original photo intact!
+          if (!currentRawUrl && typeof src === "string" && !src.startsWith("data:")) {
+            currentRawUrl = src;
+          }
+          albumPhotos.unshift(hiresDataUrl);
         }
+
+        refreshCoverAndAlbumUI("✨ Vytvorená orezaná kópia ako titulná — pôvodná fotka ostala v albume (klikni na Uložiť)");
+      },
+    });
+  }
+
+  // ---- Non-Destructive 3D Cover Studio ----
+  function openCoverStudioForSource(src) {
+    if (!window.PlatenkoCoverStudio || !src) return;
+    window.PlatenkoCoverStudio.open({
+      imageSrc: src,
+      onApply: ({ hiresDataUrl, thumbDataUrl, setAsCover }) => {
+        if (thumbDataUrl) pendingThumbMap[hiresDataUrl] = thumbDataUrl;
+        if (setAsCover) {
+          albumPhotos.unshift(hiresDataUrl);
+        } else {
+          albumPhotos.push(hiresDataUrl);
+        }
+        refreshCoverAndAlbumUI(
+          setAsCover
+            ? "✨ Vytvorená 3D Cover kópia ako titulná — pôvodná fotka ostala v albume (klikni na Uložiť)"
+            : "✨ Vytvorená 3D Cover kópia na koniec albumu (klikni na Uložiť)"
+        );
       },
     });
   }
@@ -275,7 +445,7 @@
         </td>
         <td>
           <strong style="display:block;font-size:0.92rem;">${art.title}</strong>
-          <span style="font-size:0.78rem;color:var(--text-muted);">${dimsLabel} · ${art.date || art.year || ""}</span>
+          <span style="font-size:0.78rem;color:var(--text-muted);">${dimsLabel} · ${art.date || art.year || ""} · ${art.photoCount || (art.detailImages ? art.detailImages.length : 1)} fotiek</span>
         </td>
         <td>
           <select class="status-select adm-row-status">
@@ -287,7 +457,7 @@
         <td style="text-align:right;white-space:nowrap;">
           <button type="button" class="adm-icon-btn adm-up-btn" title="Posunúť vyššie" ${isSearching ? "disabled" : ""}>↑</button>
           <button type="button" class="adm-icon-btn adm-down-btn" title="Posunúť nižšie" ${isSearching ? "disabled" : ""}>↓</button>
-          <button type="button" class="adm-icon-btn adm-crop-btn" title="Vyrovnať / Orezať">📐</button>
+          <button type="button" class="adm-icon-btn adm-crop-btn" title="4-bodový orez (vytvorí kópiu)">📐</button>
           <button type="button" class="adm-icon-btn adm-edit-btn" title="Upraviť">✏️</button>
           <button type="button" class="adm-icon-btn adm-del-btn" title="Vymazať" style="color:#ef4444;">🗑️</button>
         </td>
@@ -319,6 +489,13 @@
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       artworks = await resp.json();
       renderInventory();
+
+      // Deep-link ?edit={id}
+      const editParam = new URLSearchParams(window.location.search).get("edit");
+      if (editParam && !editingId) {
+        const target = artworks.find((a) => a.id === editParam);
+        if (target) loadArtworkIntoForm(target);
+      }
     } catch (err) {
       showStatusMsg("Nepodarilo sa načítať diela z databázy: " + err.message, true);
     }
@@ -416,8 +593,15 @@
     dom.saveBtn.textContent = "⏳ Ukladám do cloudu…";
 
     try {
+      const filteredThumbs = {};
+      albumPhotos.forEach((p) => {
+        if (pendingThumbMap[p]) filteredThumbs[p] = pendingThumbMap[p];
+      });
+      if (pendingRawDataUrl && pendingThumbMap[pendingRawDataUrl]) {
+        filteredThumbs[pendingRawDataUrl] = pendingThumbMap[pendingRawDataUrl];
+      }
+
       if (editingId) {
-        const existing = artworks.find((a) => a.id === editingId);
         const payload = {
           title,
           date: dateVal,
@@ -431,20 +615,11 @@
           depthCm: d,
           instagramUrl: dom.instagramUrl.value.trim(),
           description: dom.description.value.trim(),
+          detailImages: [...albumPhotos],
+          thumbMap: filteredThumbs,
         };
-
-        if (pendingHiresDataUrl) {
-          const restImgs = existing && Array.isArray(existing.detailImages)
-            ? existing.detailImages.slice(1)
-            : [];
-          payload.detailImages = [pendingHiresDataUrl, ...restImgs];
-          if (pendingThumbDataUrl) {
-            payload.thumbMap = { [pendingHiresDataUrl]: pendingThumbDataUrl };
-          }
-        }
-        if (pendingRawDataUrl) {
-          payload.rawImageDataUrl = pendingRawDataUrl;
-        }
+        if (currentRawUrl) payload.rawImage = currentRawUrl;
+        if (pendingRawDataUrl) payload.rawImageDataUrl = pendingRawDataUrl;
 
         const resp = await fetch(`/api/artworks/${encodeURIComponent(editingId)}`, {
           method: "PUT",
@@ -458,7 +633,7 @@
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         showStatusMsg("✓ Zmeny uložené do D1 a R2!");
       } else {
-        if (!pendingHiresDataUrl) {
+        if (albumPhotos.length === 0) {
           showStatusMsg("Pre novú maľbu najprv odfotografuj alebo nahraj obrázok.", true);
           return;
         }
@@ -480,9 +655,10 @@
           depthCm: d,
           instagramUrl: dom.instagramUrl.value.trim(),
           description: dom.description.value.trim(),
-          detailImages: [pendingHiresDataUrl],
-          thumbMap: pendingThumbDataUrl ? { [pendingHiresDataUrl]: pendingThumbDataUrl } : {},
+          detailImages: [...albumPhotos],
+          thumbMap: filteredThumbs,
           rawImageDataUrl: pendingRawDataUrl || "",
+          includeRawInAlbum: true,
         };
 
         const resp = await fetch("/api/artworks", {
@@ -495,7 +671,7 @@
           return;
         }
         if (!resp.ok) throw new Error("HTTP " + resp.status);
-        showStatusMsg("✓ Nová maľba pridaná do galérie!");
+        showStatusMsg("✓ Nová maľba (výrez aj originál) uložená do galérie!");
       }
 
       resetForm();
@@ -512,7 +688,6 @@
   document.addEventListener("DOMContentLoaded", async () => {
     cacheDom();
 
-    // Theme toggle
     const savedTheme = localStorage.getItem("platenko_theme") || "light";
     document.documentElement.setAttribute("data-theme", savedTheme);
     if (dom.themeBtn) {
@@ -526,7 +701,6 @@
       });
     }
 
-    // Login
     if (dom.loginForm) {
       dom.loginForm.addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -568,7 +742,6 @@
       });
     }
 
-    // Form interactions
     if (dom.resetFormBtn) dom.resetFormBtn.addEventListener("click", resetForm);
     if (dom.form) dom.form.addEventListener("submit", saveArtworkForm);
     if (dom.searchInput) dom.searchInput.addEventListener("input", renderInventory);
@@ -607,6 +780,23 @@
       });
     }
 
+    if (dom.addPhotosBtn && dom.addPhotosInput) {
+      dom.addPhotosBtn.addEventListener("click", () => dom.addPhotosInput.click());
+      dom.addPhotosInput.addEventListener("change", async (e) => {
+        const files = Array.from(e.target.files || []).filter((f) => f.type.startsWith("image/"));
+        e.target.value = "";
+        if (files.length === 0) return;
+        for (const f of files) {
+          try {
+            const { hiresDataUrl, thumbDataUrl } = await fileToPreparedDataUrls(f);
+            if (thumbDataUrl) pendingThumbMap[hiresDataUrl] = thumbDataUrl;
+            albumPhotos.push(hiresDataUrl);
+          } catch {}
+        }
+        refreshCoverAndAlbumUI(`＋ Pridané nové fotky (${files.length}) — potvrď tlačidlom Uložiť`);
+      });
+    }
+
     if (dom.dropzone) {
       dom.dropzone.addEventListener("dragover", (e) => {
         e.preventDefault();
@@ -624,12 +814,17 @@
 
     if (dom.rewarpBtn) {
       dom.rewarpBtn.addEventListener("click", () => {
-        const src = pendingRawDataUrl || currentRawUrl || pendingHiresDataUrl || currentCoverUrl;
+        const src = currentRawUrl || pendingRawDataUrl || albumPhotos[0];
         if (src) openWarpForSource(src, false);
       });
     }
+    if (dom.open3DCoverBtn) {
+      dom.open3DCoverBtn.addEventListener("click", () => {
+        const src = currentRawUrl || pendingRawDataUrl || albumPhotos[0];
+        if (src) openCoverStudioForSource(src);
+      });
+    }
 
-    // Auth Session Check
     try {
       const resp = await fetch("/api/auth/me");
       const data = await resp.json();

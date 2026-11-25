@@ -510,8 +510,14 @@ export default {
 
         let resolvedRawImage = rawImage || '';
         if (typeof rawImageDataUrl === 'string' && rawImageDataUrl.startsWith('data:image/')) {
-          const uploadedRaw = await uploadDataImageWithThumb(rawImageDataUrl, null, resolvedFolder, 'raw');
-          if (uploadedRaw) resolvedRawImage = uploadedRaw;
+          const rawThumbCandidate = thumbMap && typeof thumbMap === 'object' ? thumbMap[rawImageDataUrl] : null;
+          const uploadedRaw = await uploadDataImageWithThumb(rawImageDataUrl, rawThumbCandidate, resolvedFolder, 'raw');
+          if (uploadedRaw) {
+            resolvedRawImage = uploadedRaw;
+            if (body.includeRawInAlbum !== false && !resolvedImgs.includes(uploadedRaw)) {
+              resolvedImgs.push(uploadedRaw);
+            }
+          }
         }
 
         const resolvedCover = resolvedImgs[0] || (coverImage && !coverImage.startsWith('data:image/') ? coverImage : '');
@@ -699,6 +705,8 @@ export default {
         const body = await request.json();
         const {
           title,
+          date,
+          year,
           dimensions,
           widthCm,
           heightCm,
@@ -725,7 +733,8 @@ export default {
         let uploadedRawUrl = null;
         let oldRawToClean = null;
         if (typeof rawImageDataUrl === 'string' && rawImageDataUrl.startsWith('data:image/')) {
-          uploadedRawUrl = await uploadDataImageWithThumb(rawImageDataUrl, null, folder, 'raw');
+          const rawThumbCandidate = thumbMap && typeof thumbMap === 'object' ? thumbMap[rawImageDataUrl] : null;
+          uploadedRawUrl = await uploadDataImageWithThumb(rawImageDataUrl, rawThumbCandidate, folder, 'raw');
           if (uploadedRawUrl && existingArtRow && existingArtRow.raw_image && existingArtRow.raw_image !== uploadedRawUrl) {
             oldRawToClean = existingArtRow.raw_image;
           }
@@ -749,6 +758,8 @@ export default {
         await env.DB.prepare(`
           UPDATE artworks
           SET title = COALESCE(?, title),
+              date_created = COALESCE(?, date_created),
+              year = COALESCE(?, year),
               dimensions = COALESCE(?, dimensions),
               width_cm = COALESCE(?, width_cm),
               height_cm = COALESCE(?, height_cm),
@@ -764,12 +775,14 @@ export default {
         `)
           .bind(
             title ?? null,
+            date ?? null,
+            year ?? null,
             syncedDimensions,
             syncedWidth,
             syncedHeight,
             syncedDepth,
             instagramUrl ?? null,
-            uploadedRawUrl ?? rawImage ?? null,
+            (existingArtRow && existingArtRow.raw_image && !uploadedRawUrl) ? null : (uploadedRawUrl ?? rawImage ?? null),
             syncedSortOrder,
             status ?? null,
             technique ?? null,

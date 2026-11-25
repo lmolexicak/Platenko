@@ -1,6 +1,7 @@
 /**
  * Platenko Admin CMS - Interactive 4-Point Projective Homography & Crop Tool
- * Rectifies angled wall photos into flat rectangles matching physical aspect ratio.
+ * Rectifies angled photos into flat rectangles while keeping original photos untouched.
+ * Supports 90-degree rotations, -15..+15 deg fine rotation, Swapped/Free/Dimension aspect ratios, and 3x loupe.
  */
 (function () {
   "use strict";
@@ -12,8 +13,6 @@
     { label: "4", color: "#ef4444" },
   ];
 
-  // Solve 8x8 linear system (Gaussian elimination with partial pivoting) for projective homography:
-  // Maps dstPts[i] -> srcPts[i] so we can inverse-sample every output pixel cleanly without holes.
   function computeHomography(dstPts, srcPts) {
     const A = [];
     const b = [];
@@ -149,17 +148,20 @@
   }
 
   // ---- Interactive UI State ----
-  let state = {
+  const state = {
     img: null,
     rotatedCanvas: null,
     rotW: 0,
     rotH: 0,
+    baseQuarterTurns: 0,
     rotationDeg: 0,
-    corners: [], // in rotatedCanvas pixel space
+    corners: [],
     widthCm: 50,
     heightCm: 70,
+    aspectMode: "free", // "free" (derived from 4 corners) | "dims" (locked to widthCm x heightCm)
     isNewUpload: true,
     onApply: null,
+    onSwapDims: null,
     activeCorner: -1,
     dispScale: 1,
     previewTimer: null,
@@ -174,6 +176,10 @@
     ui.loupeCanvas = document.getElementById("warpLoupeCanvas");
     ui.rotSlider = document.getElementById("warpRotationSlider");
     ui.rotLabel = document.getElementById("warpRotationValue");
+    ui.rotLeftBtn = document.getElementById("warpRotLeftBtn");
+    ui.rotRightBtn = document.getElementById("warpRotRightBtn");
+    ui.swapAspectBtn = document.getElementById("warpSwapAspectBtn");
+    ui.aspectMode = document.getElementById("warpAspectMode");
     ui.aspectLabel = document.getElementById("warpAspectLabel");
     ui.resetBtn = document.getElementById("warpResetBtn");
     ui.cancelBtn = document.getElementById("warpCancelBtn");
@@ -181,21 +187,48 @@
     ui.applyBtn = document.getElementById("warpApplyBtn");
   }
 
+  function getOutputRatio() {
+    if (state.aspectMode === "dims") {
+      return state.widthCm / state.heightCm;
+    }
+    if (state.corners.length === 4) {
+      const p = state.corners;
+      const topW = Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y);
+      const botW = Math.hypot(p[2].x - p[3].x, p[2].y - p[3].y);
+      const leftH = Math.hypot(p[3].x - p[0].x, p[3].y - p[0].y);
+      const rightH = Math.hypot(p[2].x - p[1].x, p[2].y - p[1].y);
+      const avgW = (topW + botW) * 0.5;
+      const avgH = Math.max(10, (leftH + rightH) * 0.5);
+      return avgW / avgH;
+    }
+    return state.widthCm / state.heightCm;
+  }
+
+  function updateAspectLabel() {
+    if (!ui.aspectLabel) return;
+    if (state.aspectMode === "dims") {
+      ui.aspectLabel.textContent = `Cieľový pomer: ${state.widthCm} × ${state.heightCm} cm`;
+    } else {
+      const ratio = getOutputRatio();
+      ui.aspectLabel.textContent = `Voľný pomer podľa rohov (${ratio.toFixed(2)}:1)`;
+    }
+  }
+
   function buildRotatedSourceCanvas() {
     if (!state.img) return;
     const srcW = state.img.naturalWidth;
     const srcH = state.img.naturalHeight;
-    // Cap working canvas at max 1600px so live preview and export stay responsive on mobile
     const maxWork = 1600;
     const workScale = Math.max(srcW, srcH) > maxWork ? maxWork / Math.max(srcW, srcH) : 1;
     const w = Math.max(1, Math.round(srcW * workScale));
     const h = Math.max(1, Math.round(srcH * workScale));
 
-    const rad = (state.rotationDeg * Math.PI) / 180;
+    const totalDeg = state.baseQuarterTurns * 90 + state.rotationDeg;
+    const rad = (totalDeg * Math.PI) / 180;
     const cos = Math.abs(Math.cos(rad));
     const sin = Math.abs(Math.sin(rad));
-    const rw = Math.round(w * cos + h * sin);
-    const rh = Math.round(w * sin + h * cos);
+    const rw = Math.max(2, Math.round(w * cos + h * sin));
+    const rh = Math.max(2, Math.round(w * sin + h * cos));
 
     const canvas = document.createElement("canvas");
     canvas.width = rw;
@@ -241,7 +274,6 @@
 
     const dPts = state.corners.map((c) => ({ x: c.x * scale, y: c.y * scale }));
 
-    // Darken outside quad
     ctx.save();
     ctx.fillStyle = "rgba(0, 0, 0, 0.52)";
     ctx.beginPath();
@@ -254,7 +286,6 @@
     ctx.fill("evenodd");
     ctx.restore();
 
-    // Quad outline
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -262,7 +293,6 @@
     ctx.closePath();
     ctx.stroke();
 
-    // 3x3 alignment grid inside quad (bilinear quad interpolation)
     const lerpPt = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
     ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
     ctx.lineWidth = 1;
@@ -282,7 +312,6 @@
       ctx.stroke();
     }
 
-    // 4 Corner handles
     dPts.forEach((p, idx) => {
       const meta = CORNER_META[idx];
       ctx.beginPath();
@@ -311,7 +340,6 @@
     ui.loupeCanvas.height = loupeSize;
     ui.loupeCanvas.style.display = "block";
 
-    // Offset above-left of finger/cursor so it's never occluded
     const left = Math.max(10, Math.min(window.innerWidth - loupeSize - 10, clientX - loupeSize - 24));
     const top = Math.max(10, Math.min(window.innerHeight - loupeSize - 10, clientY - loupeSize - 24));
     ui.loupeCanvas.style.left = `${left}px`;
@@ -332,7 +360,6 @@
       loupeSize
     );
 
-    // Crosshair
     const c = loupeSize / 2;
     ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
     ctx.lineWidth = 1.5;
@@ -350,7 +377,7 @@
 
   function renderLivePreview() {
     if (!ui.previewCanvas || !state.rotatedCanvas || state.corners.length !== 4) return;
-    const ratio = state.widthCm / state.heightCm;
+    const ratio = getOutputRatio();
     const maxPrev = 340;
     const prevW = ratio >= 1 ? maxPrev : Math.max(60, Math.round(maxPrev * ratio));
     const prevH = ratio >= 1 ? Math.max(60, Math.round(maxPrev / ratio)) : maxPrev;
@@ -359,6 +386,7 @@
     ui.previewCanvas.width = prevW;
     ui.previewCanvas.height = prevH;
     ui.previewCanvas.getContext("2d").drawImage(warped, 0, 0);
+    updateAspectLabel();
   }
 
   function scheduleLivePreview() {
@@ -374,18 +402,23 @@
     state.heightCm = Number(opts.heightCm) > 0 ? Number(opts.heightCm) : 70;
     state.isNewUpload = Boolean(opts.isNewUpload);
     state.onApply = opts.onApply || null;
+    state.onSwapDims = opts.onSwapDims || null;
+    state.baseQuarterTurns = 0;
     state.rotationDeg = 0;
 
     if (ui.rotSlider) ui.rotSlider.value = "0";
     if (ui.rotLabel) ui.rotLabel.textContent = "0°";
-    if (ui.aspectLabel) {
-      ui.aspectLabel.textContent = `Cieľový pomer: ${state.widthCm} × ${state.heightCm} cm`;
-    }
 
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
       state.img = img;
+      // Default to "free" if aspect doesn't match portrait/landscape of widthCm x heightCm cleanly, else "dims"
+      const imgLand = img.naturalWidth > img.naturalHeight * 1.05;
+      const dimsLand = state.widthCm > state.heightCm * 1.05;
+      state.aspectMode = imgLand === dimsLand ? "dims" : "free";
+      if (ui.aspectMode) ui.aspectMode.value = state.aspectMode;
+
       buildRotatedSourceCanvas();
       resetCorners();
       drawSourceOverlay();
@@ -419,12 +452,44 @@
 
     if (ui.resetBtn) {
       ui.resetBtn.addEventListener("click", () => {
+        state.baseQuarterTurns = 0;
         state.rotationDeg = 0;
         if (ui.rotSlider) ui.rotSlider.value = "0";
         if (ui.rotLabel) ui.rotLabel.textContent = "0°";
         buildRotatedSourceCanvas();
         resetCorners();
         drawSourceOverlay();
+        renderLivePreview();
+      });
+    }
+
+    const rotateQuarter = (delta) => {
+      state.baseQuarterTurns = (state.baseQuarterTurns + delta + 4) % 4;
+      buildRotatedSourceCanvas();
+      resetCorners();
+      drawSourceOverlay();
+      renderLivePreview();
+    };
+    if (ui.rotLeftBtn) ui.rotLeftBtn.addEventListener("click", () => rotateQuarter(-1));
+    if (ui.rotRightBtn) ui.rotRightBtn.addEventListener("click", () => rotateQuarter(1));
+
+    if (ui.swapAspectBtn) {
+      ui.swapAspectBtn.addEventListener("click", () => {
+        const tmp = state.widthCm;
+        state.widthCm = state.heightCm;
+        state.heightCm = tmp;
+        state.aspectMode = "dims";
+        if (ui.aspectMode) ui.aspectMode.value = "dims";
+        if (typeof state.onSwapDims === "function") {
+          state.onSwapDims(state.widthCm, state.heightCm);
+        }
+        renderLivePreview();
+      });
+    }
+
+    if (ui.aspectMode) {
+      ui.aspectMode.addEventListener("change", () => {
+        state.aspectMode = ui.aspectMode.value === "dims" ? "dims" : "free";
         renderLivePreview();
       });
     }
@@ -493,7 +558,7 @@
     if (ui.applyBtn) {
       ui.applyBtn.addEventListener("click", () => {
         if (!state.rotatedCanvas || !state.img) return;
-        const ratio = state.widthCm / state.heightCm;
+        const ratio = getOutputRatio();
         const maxOut = 1800;
         const outW = ratio >= 1 ? maxOut : Math.max(200, Math.round(maxOut * ratio));
         const outH = ratio >= 1 ? Math.max(200, Math.round(maxOut / ratio)) : maxOut;
@@ -503,6 +568,7 @@
         const thumbDataUrl = downscaleCanvasToJpeg(fullRectified, 600, 0.8);
 
         let rawDataUrl = null;
+        let rawThumbDataUrl = null;
         if (state.isNewUpload) {
           const rawCanvas = document.createElement("canvas");
           const nw = state.img.naturalWidth;
@@ -513,12 +579,13 @@
           rawCanvas.height = Math.max(1, Math.round(nh * sc));
           rawCanvas.getContext("2d").drawImage(state.img, 0, 0, rawCanvas.width, rawCanvas.height);
           rawDataUrl = rawCanvas.toDataURL("image/jpeg", 0.88);
+          rawThumbDataUrl = downscaleCanvasToJpeg(rawCanvas, 600, 0.8);
         }
 
         const cb = state.onApply;
         close();
         if (typeof cb === "function") {
-          cb({ hiresDataUrl, thumbDataUrl, rawDataUrl });
+          cb({ hiresDataUrl, thumbDataUrl, rawDataUrl, rawThumbDataUrl });
         }
       });
     }

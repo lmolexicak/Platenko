@@ -17,7 +17,7 @@
       }
     }
   </script>
-  <link rel="stylesheet" href="styles.css?v=20261125b">
+  <link rel="stylesheet" href="styles.css?v=20261125d">
 </head>
 <body>
 
@@ -52,22 +52,6 @@
       </div>
     </div>
   </header>
-
-  <!-- Admin Mode Action Banner -->
-  <div class="admin-banner" id="adminBanner">
-    <div class="admin-banner-info">
-      <span class="admin-banner-badge">Admin Mód</span>
-      <span>Kliknutím na <strong>✕</strong> natrvalo vymažeš maľbu aj jej fotky a náhľady, cez <strong>✏️</strong> upravíš album.</span>
-      <span id="adminDeletedWrap">(Vymazaných: <strong id="adminDeletedCount">0</strong>)</span>
-    </div>
-    <div class="admin-banner-actions">
-      <a href="/admin" class="btn-admin-action" style="text-decoration: none;" title="Otvoriť Admin CMS (kamera, orez, rozmery)">🏛️ Admin CMS</a>
-      <a href="sorter.html" class="btn-admin-action" style="text-decoration: none;" title="Otvoriť tabuľkový organizér malieb">📋 Organizér</a>
-      <button id="adminUndoBtn" class="btn-admin-action" title="Obnoviť poslednú vymazanú maľbu">↩️ Vrátiť späť</button>
-      <button id="adminExportBtn" class="btn-admin-save" title="Uložiť vykonané zmeny">💾 Uložiť zmeny</button>
-      <button id="adminExitBtn" class="btn-admin-action" title="Ukončiť administrátorský režim">Ukončiť Admin</button>
-    </div>
-  </div>
 
   <main class="container">
     <!-- Hero / Intro -->
@@ -118,146 +102,6 @@
     </section>
   </main>
 
-  <!-- Edit Artwork Modal (Admin) -->
-  <div class="modal-overlay" id="editModal" role="dialog" aria-modal="true">
-    <div class="edit-modal-box">
-      <button class="modal-close-btn" id="editModalCloseBtn" aria-label="Zavrieť">✕</button>
-
-      <div style="display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 14px;">
-        <h2 style="font-size: 1.45rem; margin: 0;">✏️ Upraviť album maľby</h2>
-        <span id="editModalFolderHint" style="font-size: 0.8rem; color: var(--text-muted); font-family: monospace;"></span>
-      </div>
-
-      <div style="display: flex; flex-direction: column; gap: 20px;">
-
-        <!-- 1. Riadok: Názov (plná šírka) -->
-        <div>
-          <label class="edit-label">Názov maľby</label>
-          <input type="text" id="editTitle" class="edit-input" placeholder="Zadaj názov diela...">
-        </div>
-
-        <!-- 2. Riadok: Popis / Story (veľký textarea na plnú šírku) -->
-        <div>
-          <label class="edit-label">Popis / Príbeh diela</label>
-          <textarea id="editDescription" class="edit-input" rows="5" placeholder="Napíš príbeh, popis techniky, myšlienku za maľbou..."></textarea>
-        </div>
-
-        <!-- 3. Riadok: Technika, Stav, Rozmery, Materiál -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px;">
-          <div>
-            <label class="edit-label">Technika</label>
-            <select id="editTechnique" class="edit-select">
-              <option value="Pouring">Pouring</option>
-              <option value="Airbrush">Airbrush</option>
-              <option value="Mixed">Mixed</option>
-              <option value="Brush">Brush</option>
-            </select>
-          </div>
-          <div>
-            <label class="edit-label">Stav predaja</label>
-            <select id="editStatus" class="edit-select">
-              <option value="Available">Dostupná</option>
-              <option value="Reserved">Rezervovaná</option>
-              <option value="Sold">Predaná</option>
-            </select>
-          </div>
-          <div>
-            <label class="edit-label">Rozmery (Š × V cm)</label>
-            <input type="text" id="editDimensions" class="edit-input" placeholder="50 × 70 cm">
-          </div>
-          <div>
-            <label class="edit-label">Hĺbka plátna (cm)</label>
-            <input type="number" id="editDepthCm" class="edit-input" min="1" max="15" step="0.5" value="4" placeholder="4">
-          </div>
-          <div>
-            <label class="edit-label">Materiál / Medium</label>
-            <input type="text" id="editMedium" class="edit-input" placeholder="Akryl na plátne">
-          </div>
-          <div>
-            <label class="edit-label">Instagram URL</label>
-            <input type="url" id="editInstagramUrl" class="edit-input" placeholder="https://www.instagram.com/p/...">
-          </div>
-        </div>
-
-        <!-- 4. Riadok: Fotky albumu -->
-        <div style="background: var(--bg-subtle); padding: 18px; border-radius: 12px; border: 1px solid var(--border-color);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
-            <div>
-              <label class="edit-label" style="margin: 0;">Fotografie v albume <span id="editPhotoCount" style="font-weight: normal; color: var(--text-muted);"></span></label>
-              <span style="font-size: 0.78rem; color: var(--text-muted);">💡 Kliknutím na fotku ju zvolíš ako <strong>Titulnú (Cover)</strong></span>
-            </div>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <input type="file" id="coverUploadInput" accept="image/*" style="display: none;">
-              <button type="button" id="openCoverStudioBtn" class="btn-secondary" style="padding: 6px 14px; font-size: 0.82rem; background: rgba(99, 102, 241, 0.1); border-color: #6366f1; color: #6366f1; font-weight: 600;">
-                ✨ Vytvoriť 3D Cover efekt
-              </button>
-            </div>
-          </div>
-          <div id="editPhotoGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); gap: 12px; margin-top: 8px;"></div>
-        </div>
-
-      </div>
-
-      <!-- Spodná lišta s tlačidlami -->
-      <div class="edit-modal-footer">
-        <button class="btn-secondary" id="editModalCancelBtn">Zrušiť</button>
-        <button class="btn-edit-save" id="editModalSaveBtn">💾 Uložiť zmeny</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 3D Cover Mockup Studio Modal -->
-  <div class="modal-overlay" id="coverStudioModal" role="dialog" aria-modal="true" style="z-index: 9999;">
-    <div class="edit-modal-box" style="max-width: 1040px; height: 92vh; display: flex; flex-direction: column;">
-      <button class="modal-close-btn" id="coverStudioCloseBtn" aria-label="Zavrieť">✕</button>
-
-      <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; flex-shrink: 0;">
-        <div>
-          <h2 style="font-size: 1.35rem; margin: 0;">✨ 3D Cover Studio</h2>
-          <p style="font-size: 0.85rem; color: var(--text-muted); margin: 4px 0 0;">
-            1. Potiahni 4 farebné rohy na okraje maľby &nbsp;|&nbsp; 2. Výsledok vpravo sa prepočíta v reálnom čase
-          </p>
-        </div>
-      </div>
-
-      <!-- Editor Columns -->
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; min-height: 0; margin-bottom: 14px;">
-        <!-- Left: Corner Pinning Canvas -->
-        <div style="display: flex; flex-direction: column; height: 100%;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0;">
-            <span style="font-size: 0.82rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted);">Pôvodná fotka (uprav rohy)</span>
-            <div style="display: flex; gap: 8px;">
-              <button type="button" id="detectCornersBtn" class="btn-secondary" style="padding: 4px 10px; font-size: 0.78rem; background: rgba(99, 102, 241, 0.15); color: #6366f1; border-color: #6366f1;">🤖 Automatické rohy</button>
-              <button type="button" id="resetCornersBtn" class="btn-secondary" style="padding: 4px 10px; font-size: 0.78rem;">Reset rohov</button>
-            </div>
-          </div>
-          <div style="flex: 1; position: relative; background: #09090b; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; min-height: 0;">
-            <canvas id="pinningCanvas" style="max-width: 100%; max-height: 100%; object-fit: contain; display: block; cursor: crosshair;"></canvas>
-          </div>
-        </div>
-
-        <!-- Right: Generated 3D Preview -->
-        <div style="display: flex; flex-direction: column; height: 100%;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0;">
-            <span style="font-size: 0.82rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted);">Výsledný 3D Cover</span>
-            <span style="font-size: 0.78rem; color: #22c55e; font-weight: 600;">● Živý náhľad</span>
-          </div>
-          <div style="flex: 1; position: relative; background: #09090b; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; min-height: 0;">
-            <canvas id="previewCanvas" style="max-width: 100%; max-height: 100%; object-fit: contain; display: block;"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <!-- Footer Actions (Always visible at bottom) -->
-      <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding-top: 14px; border-top: 1px solid var(--border-color); flex-shrink: 0;">
-        <button type="button" class="btn-secondary" id="coverStudioCancelBtn" style="padding: 10px 20px;">Zrušiť</button>
-        <button type="button" class="btn-edit-save" id="applyCoverBtn" style="padding: 10px 22px; font-size: 0.95rem; font-weight: 700;">
-          ✨ Použiť ako Titulnú fotku (Cover)
-        </button>
-      </div>
-    </div>
-  </div>
-
   <!-- Full-Screen 3-Tab Artwork Detail Modal (Phase 2) -->
   <div class="modal-overlay detail-modal-overlay" id="artworkModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="detail-modal-shell">
@@ -269,6 +113,9 @@
           <span id="modalHeaderMeta" class="detail-header-meta"></span>
         </div>
         <div class="detail-header-right">
+          <a id="modalEditCmsLink" href="/admin" class="detail-header-action-btn" style="display: none; text-decoration: none;" title="Upraviť dielo v Admin CMS">
+            ✏️ <span class="action-btn-label">Upraviť v CMS</span>
+          </a>
           <button type="button" id="modalArBtn" class="detail-header-action-btn" title="Vyskúšať maľbu na stene v mierke 1:1 (AR)">
             📱 <span class="action-btn-label">Vyskúšať na stene (AR)</span>
           </button>
@@ -517,14 +364,11 @@
         </p>
 
         <div class="settings-action-list">
-          <button type="button" id="settingsToggleAdminBtn" class="btn-edit-save" style="width: 100%; justify-content: center;">
-            🛠️ Zapnúť Admin mód
-          </button>
-          <a href="/admin" class="btn-secondary" style="width: 100%; text-align: center; text-decoration: none; display: block;">
-            🏛️ Otvoriť Admin CMS (Pridať / Orezať)
+          <a href="/admin" class="btn-edit-save" style="width: 100%; text-align: center; text-decoration: none; justify-content: center;">
+            🏛️ Otvoriť Admin CMS (Pridať / Orezať / Upraviť)
           </a>
           <a href="sorter.html" class="btn-secondary" style="width: 100%; text-align: center; text-decoration: none; display: block;">
-            📋 Otvoriť Organizér
+            📋 Otvoriť Organizér (Hromadné úpravy &amp; zlúčenie)
           </a>
         </div>
 
@@ -740,10 +584,10 @@
   </footer>
 
   <!-- Scripts -->
-  <script src="artworks.js?v=20261125b"></script>
-  <script src="detail-modal.js?v=20261125b"></script>
-  <script src="ar-viewer.js?v=20261125b"></script>
-  <script src="gallery-3d.js?v=20261125c"></script>
-  <script src="app.js?v=20261125b"></script>
+  <script src="artworks.js?v=20261125d"></script>
+  <script src="detail-modal.js?v=20261125d"></script>
+  <script src="ar-viewer.js?v=20261125d"></script>
+  <script src="gallery-3d.js?v=20261125d"></script>
+  <script src="app.js?v=20261125d"></script>
 </body>
 </html>

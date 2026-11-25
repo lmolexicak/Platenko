@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20261125d">
 </head>
 <body>
 
@@ -85,11 +85,31 @@
               <img id="admCoverPreview" src="" alt="Náhľad obalu" class="adm-cover-thumb">
               <div style="display: flex; flex-direction: column; gap: 8px; flex: 1;">
                 <span id="admCoverSourceTag" style="font-size: 0.78rem; color: var(--text-muted);"></span>
-                <button type="button" id="admRewarpBtn" class="btn-secondary" style="padding: 7px 12px; font-size: 0.82rem; align-self: flex-start;">
-                  📐 Upraviť orez / perspektívu
-                </button>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                  <button type="button" id="admRewarpBtn" class="btn-secondary" style="padding: 7px 12px; font-size: 0.82rem;">
+                    📐 4-bodový orez (kópia)
+                  </button>
+                  <button type="button" id="admOpen3DCoverBtn" class="btn-secondary" style="padding: 7px 12px; font-size: 0.82rem; border-color: #6366f1; color: #6366f1;">
+                    ✨ 3D Cover efekt (kópia)
+                  </button>
+                </div>
               </div>
             </div>
+          </div>
+
+          <!-- Album Photos Manager (Non-destructive copies, cover picker, multi-photo upload) -->
+          <div class="adm-dims-box" id="admAlbumPhotosSection" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+              <div>
+                <span class="edit-label" style="margin: 0;">📸 Fotografie v albume <span id="admPhotoCount" style="font-weight: normal; text-transform: none;"></span></span>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Kliknutím na fotku ju zvolíš ako Titulnú · 📐 alebo ✨ vždy vytvorí novú kópiu (pôvodná fotka ostáva).</span>
+              </div>
+              <div>
+                <input type="file" id="admAddPhotosInput" accept="image/*" multiple style="display: none;">
+                <button type="button" id="admAddPhotosBtn" class="preset-chip" style="padding: 6px 12px; font-size: 0.78rem;">＋ Pridať ďalšie fotky</button>
+              </div>
+            </div>
+            <div id="admPhotoGrid" class="adm-photo-grid"></div>
           </div>
 
           <!-- Dimensions + Quick Presets + Miniature Sofa Preview -->
@@ -232,7 +252,7 @@
     <div class="warp-modal-box">
       <div class="detail-header" style="padding: 14px 20px;">
         <div>
-          <h2 style="font-size: 1.2rem; margin: 0;">📐 Vyrovnanie perspektívy (4 rohy plátna)</h2>
+          <h2 style="font-size: 1.2rem; margin: 0;">📐 Vyrovnanie perspektívy (vytvorí novú kópiu)</h2>
           <span id="warpAspectLabel" style="font-size: 0.8rem; color: var(--text-muted);">Cieľový pomer: 50 × 70 cm</span>
         </div>
         <button class="modal-close-btn detail-close-btn" id="warpCloseBtn" aria-label="Zavrieť">✕</button>
@@ -241,11 +261,21 @@
       <div class="warp-body">
         <div class="warp-source-col">
           <canvas id="warpSourceCanvas" class="warp-source-canvas"></canvas>
-          <div class="warp-rot-bar">
-            <label for="warpRotationSlider" style="font-size: 0.82rem; font-weight: 600;">Jemné pootočenie:</label>
-            <input type="range" id="warpRotationSlider" min="-15" max="15" step="0.5" value="0" style="flex: 1; accent-color: #18181B;">
-            <span id="warpRotationValue" style="font-size: 0.82rem; min-width: 44px; text-align: right;">0°</span>
+          <div class="warp-rot-bar" style="flex-wrap: wrap;">
+            <button type="button" id="warpRotLeftBtn" class="btn-secondary" style="padding: 5px 10px; font-size: 0.78rem;" title="Otočiť o 90° doľava">⟲ -90°</button>
+            <button type="button" id="warpRotRightBtn" class="btn-secondary" style="padding: 5px 10px; font-size: 0.78rem;" title="Otočiť o 90° doprava">⟳ +90°</button>
+            <label for="warpRotationSlider" style="font-size: 0.8rem; font-weight: 600;">Jemne:</label>
+            <input type="range" id="warpRotationSlider" min="-15" max="15" step="0.5" value="0" style="flex: 1; min-width: 100px; accent-color: #18181B;">
+            <span id="warpRotationValue" style="font-size: 0.8rem; min-width: 42px; text-align: right;">0°</span>
             <button type="button" id="warpResetBtn" class="btn-secondary" style="padding: 5px 10px; font-size: 0.78rem;">Reset</button>
+          </div>
+          <div class="warp-rot-bar" style="justify-content: space-between; flex-wrap: wrap;">
+            <label for="warpAspectMode" style="font-size: 0.8rem; font-weight: 600;">Pomer strán:</label>
+            <select id="warpAspectMode" class="edit-select" style="width: auto; padding: 5px 10px; font-size: 0.8rem;">
+              <option value="free">Voľný pomer podľa 4 rohov</option>
+              <option value="dims">Podľa rozmerov diela (Š×V cm)</option>
+            </select>
+            <button type="button" id="warpSwapAspectBtn" class="btn-secondary" style="padding: 5px 10px; font-size: 0.78rem;" title="Prehodiť šírku a výšku">🔄 Prehodiť Š ↔ V</button>
           </div>
         </div>
 
@@ -270,7 +300,53 @@
     <canvas id="warpLoupeCanvas" class="warp-loupe-canvas" style="display: none;"></canvas>
   </div>
 
-  <script src="perspective-warp.js"></script>
-  <script src="admin.js"></script>
+  <!-- 3D Cover Mockup Studio Modal (Consolidated into CMS) -->
+  <div class="modal-overlay" id="coverStudioModal" role="dialog" aria-modal="true" style="z-index: 320;">
+    <div class="edit-modal-box" style="max-width: 1040px; height: 92vh; display: flex; flex-direction: column;">
+      <button class="modal-close-btn" id="coverStudioCloseBtn" aria-label="Zavrieť">✕</button>
+
+      <div style="margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; padding-right: 40px; flex-shrink: 0;">
+        <h2 style="font-size: 1.3rem; margin: 0;">✨ 3D Cover Studio (kópia do albumu)</h2>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin: 4px 0 0;">
+          Tip: Pre 3D Galériu a AR 1:1 odporúčame nechať ako titulnú fotku čistý plochý výrez a 3D Cover uložiť len ako kópiu do albumu.
+        </p>
+      </div>
+
+      <div class="warp-body cover-studio-body" style="padding: 0; flex: 1; min-height: 0; margin-bottom: 12px;">
+        <div style="display: flex; flex-direction: column; height: 100%; min-height: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0;">
+            <span style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted);">Pôvodná fotka (4 rohy)</span>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" id="detectCornersBtn" class="btn-secondary" style="padding: 4px 10px; font-size: 0.78rem;">🤖 Auto rohy</button>
+              <button type="button" id="resetCornersBtn" class="btn-secondary" style="padding: 4px 10px; font-size: 0.78rem;">Reset</button>
+            </div>
+          </div>
+          <div style="flex: 1; background: #09090b; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; min-height: 200px;">
+            <canvas id="pinningCanvas" style="max-width: 100%; max-height: 100%; object-fit: contain; display: block; cursor: crosshair; touch-action: none;"></canvas>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; height: 100%; min-height: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0;">
+            <span style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted);">Výsledný 3D Cover</span>
+            <span style="font-size: 0.78rem; color: #22c55e; font-weight: 600;">● Živý náhľad</span>
+          </div>
+          <div style="flex: 1; background: #09090b; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; min-height: 200px;">
+            <canvas id="previewCanvas" style="max-width: 100%; max-height: 100%; object-fit: contain; display: block;"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border-color); flex-shrink: 0;">
+        <button type="button" class="btn-secondary" id="coverStudioCancelBtn">Zrušiť</button>
+        <button type="button" class="btn-secondary" id="coverApplyCopyBtn">💾 Pridať do albumu ako kópiu</button>
+        <button type="button" class="btn-edit-save" id="coverApplyCoverBtn">✨ Pridať a nastaviť ako titulnú</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="perspective-warp.js?v=20261125d"></script>
+  <script src="cover-studio.js?v=20261125d"></script>
+  <script src="admin.js?v=20261125d"></script>
 </body>
 </html>
