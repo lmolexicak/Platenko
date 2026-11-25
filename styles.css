@@ -2850,25 +2850,29 @@ footer {
   }
   .nav-inner {
     height: auto;
-    min-height: 62px;
-    padding: 10px 0;
+    min-height: 60px;
+    padding: 10px 0 12px;
     flex-wrap: wrap;
-    gap: 8px 10px;
+    row-gap: 10px;
+    column-gap: 8px;
   }
   .brand {
     gap: 8px;
+    order: 1;
   }
   .brand-logo {
     height: 34px;
   }
   .brand-title {
-    font-size: 1.5rem;
+    font-size: 1.55rem;
   }
   .brand-subtitle {
     display: none;
   }
   .nav-actions {
-    gap: 6px;
+    order: 2;
+    gap: 8px;
+    margin-left: auto;
   }
   .theme-toggle-btn {
     padding: 6px 10px;
@@ -2877,11 +2881,15 @@ footer {
     display: none;
   }
   .view-switcher {
-    max-width: 100%;
+    order: 3;
+    flex: 1 0 100%;
+    justify-content: center;
   }
   .view-switch-btn {
-    padding: 5px 10px;
-    font-size: 0.76rem;
+    flex: 1;
+    text-align: center;
+    padding: 6px 12px;
+    font-size: 0.82rem;
   }
   .detail-header {
     padding: 10px 14px;
