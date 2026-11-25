@@ -601,124 +601,17 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // 6. Modal Lightbox Display & Thumbnails
+  // 6. Modal Detail Delegation (Phase 2: Deep Zoom, Raking Light, In-Situ, Info)
   function openArtworkModal(art) {
-    const modalImage = document.getElementById("modalMainImage");
-    const modalThumbs = document.getElementById("modalThumbs");
-    const modalTitle = document.getElementById("modalTitle");
-    const modalStatus = document.getElementById("modalStatus");
-    const modalMedium = document.getElementById("modalMedium");
-    const modalDimensions = document.getElementById("modalDimensions");
-    const modalYear = document.getElementById("modalYear");
-    const modalDesc = document.getElementById("modalDescription");
-    const modalInquireBtn = document.getElementById("modalInquireBtn");
-
-    modalTitle.textContent = art.title;
-    modalMedium.textContent = art.medium || "Akryl na plátne";
-    modalDimensions.textContent = art.dimensions || "50 × 70 cm";
-    modalYear.textContent = art.date || art.year;
-    modalDesc.textContent = art.description || `Séria fotografií originálnej maľby vytvorenej ${art.date}.`;
-
-    const statusInfo = normalizeStatus(art.status);
-    modalStatus.textContent = statusInfo.label;
-    modalStatus.className = `card-badge ${statusInfo.badgeClass}`;
-
     currentArtworkImages = (art.detailImages && art.detailImages.length > 0)
       ? art.detailImages
       : [art.coverImage];
     currentImageIndex = 0;
 
-    renderModalImage();
-
-    // Thumbnails
-    modalThumbs.innerHTML = "";
-    currentArtworkImages.forEach((imgUrl, index) => {
-      const thumb = document.createElement("div");
-      thumb.className = `modal-thumb ${index === 0 ? "active" : ""}`;
-      thumb.innerHTML = `<img src="${toThumbUrl(imgUrl)}" alt="${art.title} foto ${index + 1}" loading="lazy" decoding="async">`;
-      
-      thumb.addEventListener("click", () => {
-        currentImageIndex = index;
-        renderModalImage();
-      });
-
-      modalThumbs.appendChild(thumb);
-    });
-
-    // Inquire Button Action
-    modalInquireBtn.onclick = () => {
-      const subject = `Záujem o maľbu: ${art.title} (${art.dimensions || "50 × 70 cm"})`;
-      const body = `Dobrý deň,\n\nmám záujem o dielo "${art.title}" (ID: ${art.id}, rozmery: ${art.dimensions || "50 × 70 cm"}).\n\nProsím o informácie o dostupnosti a cene.`;
-      window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    };
-
-    modalOverlay.classList.add("open");
-    document.body.style.overflow = "hidden";
-  }
-
-  function renderModalImage() {
-    const modalImage = document.getElementById("modalMainImage");
-    if (!modalImage || currentArtworkImages.length === 0) return;
-
-    modalImage.src = currentArtworkImages[currentImageIndex];
-
-    // Update active thumb
-    document.querySelectorAll(".modal-thumb").forEach((t, idx) => {
-      if (idx === currentImageIndex) {
-        t.classList.add("active");
-        t.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" });
-      } else {
-        t.classList.remove("active");
-      }
-    });
-
-    // Show/hide navigation arrows based on count
-    if (modalPrevBtn && modalNextBtn) {
-      if (currentArtworkImages.length <= 1) {
-        modalPrevBtn.style.display = "none";
-        modalNextBtn.style.display = "none";
-      } else {
-        modalPrevBtn.style.display = "flex";
-        modalNextBtn.style.display = "flex";
-      }
+    if (window.PlatenkoDetailModal) {
+      window.PlatenkoDetailModal.open(art, { toThumbUrl, normalizeStatus });
     }
   }
-
-  function nextModalImage() {
-    if (currentArtworkImages.length <= 1) return;
-    currentImageIndex = (currentImageIndex + 1) % currentArtworkImages.length;
-    renderModalImage();
-  }
-
-  function prevModalImage() {
-    if (currentArtworkImages.length <= 1) return;
-    currentImageIndex = (currentImageIndex - 1 + currentArtworkImages.length) % currentArtworkImages.length;
-    renderModalImage();
-  }
-
-  if (modalNextBtn) modalNextBtn.addEventListener("click", nextModalImage);
-  if (modalPrevBtn) modalPrevBtn.addEventListener("click", prevModalImage);
-
-  function closeModal() {
-    modalOverlay.classList.remove("open");
-    document.body.style.overflow = "";
-  }
-
-  modalCloseBtn.addEventListener("click", closeModal);
-  modalOverlay.addEventListener("click", (e) => {
-    if (e.target === modalOverlay) closeModal();
-  });
-
-  document.addEventListener("keydown", (e) => {
-    if (!modalOverlay.classList.contains("open")) return;
-    if (e.key === "Escape") {
-      closeModal();
-    } else if (e.key === "ArrowRight") {
-      nextModalImage();
-    } else if (e.key === "ArrowLeft") {
-      prevModalImage();
-    }
-  });
 
   // ============================================================
   // EDIT MODAL LOGIC
@@ -733,7 +626,9 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("editTechnique").value = art.technique || "Pouring";
     document.getElementById("editStatus").value = art.status || "Available";
     document.getElementById("editDimensions").value = art.dimensions || "";
+    document.getElementById("editDepthCm").value = art.depthCm || 4;
     document.getElementById("editMedium").value = art.medium || "";
+    document.getElementById("editInstagramUrl").value = art.instagramUrl || "";
     document.getElementById("editModalFolderHint").textContent = `📁 ${art.folder || art.id}`;
 
     // Build photo list (detailImages or just coverImage)
@@ -799,13 +694,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const targetId = editingArtId;
     const photosSnapshot = [...editPhotos];
 
+    const depthVal = parseFloat(document.getElementById("editDepthCm").value);
     const updates = {
       title: document.getElementById("editTitle").value.trim(),
       description: document.getElementById("editDescription").value.trim(),
       technique: document.getElementById("editTechnique").value,
       status: document.getElementById("editStatus").value,
       dimensions: document.getElementById("editDimensions").value.trim(),
+      depthCm: Number.isFinite(depthVal) && depthVal > 0 ? depthVal : 4,
       medium: document.getElementById("editMedium").value.trim(),
+      instagramUrl: document.getElementById("editInstagramUrl").value.trim(),
       coverImage: photosSnapshot[0],
       detailImages: [...photosSnapshot],
       photoCount: photosSnapshot.length,
@@ -844,7 +742,9 @@ document.addEventListener("DOMContentLoaded", () => {
             technique: updates.technique,
             status: updates.status,
             dimensions: updates.dimensions,
+            depthCm: updates.depthCm,
             medium: updates.medium,
+            instagramUrl: updates.instagramUrl,
             coverImage: updates.coverImage,
             detailImages: updates.detailImages,
             thumbMap: thumbPayload

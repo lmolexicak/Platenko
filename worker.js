@@ -117,6 +117,18 @@ export default {
     };
 
     // ---- R2 Image & Cleanup Helpers ----
+    const parseDimPair = (dimensionsStr) => {
+      if (typeof dimensionsStr !== 'string') return { widthCm: 50, heightCm: 70 };
+      const nums = dimensionsStr.match(/\d+(?:[.,]\d+)?/g);
+      if (!nums || nums.length < 2) return { widthCm: 50, heightCm: 70 };
+      const w = parseFloat(nums[0].replace(',', '.'));
+      const h = parseFloat(nums[1].replace(',', '.'));
+      if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+        return { widthCm: 50, heightCm: 70 };
+      }
+      return { widthCm: w, heightCm: h };
+    };
+
     const urlToR2Key = (imageUrl) => {
       if (typeof imageUrl !== 'string' || !imageUrl) return null;
       let clean = imageUrl.split('?')[0].split('#')[0];
@@ -166,6 +178,13 @@ export default {
           .bind(imgUrl)
           .first();
         if (stillAsCover) continue;
+
+        const stillAsRaw = await env.DB.prepare(
+          `SELECT 1 FROM artworks WHERE raw_image = ? LIMIT 1`
+        )
+          .bind(imgUrl)
+          .first();
+        if (stillAsRaw) continue;
 
         const r2Key = urlToR2Key(imgUrl);
         if (r2Key) {
@@ -378,6 +397,10 @@ export default {
 
         const data = artworks.map((art) => {
           const detailImgs = imgMap[art.id] || (art.cover_image ? [art.cover_image] : []);
+          const parsedDims = parseDimPair(art.dimensions);
+          const widthCm = Number(art.width_cm) > 0 ? Number(art.width_cm) : parsedDims.widthCm;
+          const heightCm = Number(art.height_cm) > 0 ? Number(art.height_cm) : parsedDims.heightCm;
+          const depthCm = Number(art.depth_cm) > 0 ? Number(art.depth_cm) : 4;
           return {
             id: art.id,
             folder: art.folder_name,
@@ -386,7 +409,12 @@ export default {
             year: art.year,
             technique: art.technique,
             medium: art.medium,
-            dimensions: art.dimensions,
+            dimensions: art.dimensions || `${widthCm} × ${heightCm} cm`,
+            widthCm,
+            heightCm,
+            depthCm,
+            instagramUrl: art.instagram_url || '',
+            rawImage: art.raw_image || '',
             status: art.status,
             photoCount: art.photo_count || detailImgs.length,
             coverImage: art.cover_image || (detailImgs.length > 0 ? detailImgs[0] : ''),
@@ -418,7 +446,12 @@ export default {
           year,
           technique = 'Mixed',
           medium = 'Akryl na plátne',
-          dimensions = '50 × 70 cm',
+          dimensions,
+          widthCm,
+          heightCm,
+          depthCm = 4,
+          instagramUrl = '',
+          rawImage = '',
           status = 'Available',
           description = '',
           coverImage = '',
@@ -429,6 +462,13 @@ export default {
           return jsonResponse({ error: 'Missing artwork id' }, 400);
         }
 
+        const hasExplicitDims = Number(widthCm) > 0 && Number(heightCm) > 0;
+        const parsedFromStr = parseDimPair(dimensions || '50 × 70 cm');
+        const resolvedWidth = hasExplicitDims ? Number(widthCm) : parsedFromStr.widthCm;
+        const resolvedHeight = hasExplicitDims ? Number(heightCm) : parsedFromStr.heightCm;
+        const resolvedDepth = Number(depthCm) > 0 ? Number(depthCm) : 4;
+        const resolvedDimensions = dimensions || `${resolvedWidth} × ${resolvedHeight} cm`;
+
         const imgs = Array.isArray(detailImages) && detailImages.length > 0
           ? detailImages
           : (coverImage ? [coverImage] : []);
@@ -436,8 +476,8 @@ export default {
 
         await env.DB.prepare(`
           INSERT OR REPLACE INTO artworks
-            (id, folder_name, title, date_created, year, technique, medium, dimensions, status, description, cover_image, photo_count)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, folder_name, title, date_created, year, technique, medium, dimensions, width_cm, height_cm, depth_cm, instagram_url, raw_image, status, description, cover_image, photo_count)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
           .bind(
             id,
@@ -447,7 +487,12 @@ export default {
             year ?? null,
             technique ?? 'Mixed',
             medium ?? 'Akryl na plátne',
-            dimensions ?? '50 × 70 cm',
+            resolvedDimensions,
+            resolvedWidth,
+            resolvedHeight,
+            resolvedDepth,
+            instagramUrl ?? '',
+            rawImage ?? '',
             status ?? 'Available',
             description ?? '',
             resolvedCover,
@@ -580,6 +625,11 @@ export default {
         const {
           title,
           dimensions,
+          widthCm,
+          heightCm,
+          depthCm,
+          instagramUrl,
+          rawImage,
           status,
           technique,
           medium,
@@ -588,10 +638,29 @@ export default {
           thumbMap = {},
         } = body;
 
+        const hasExplicitDims = Number(widthCm) > 0 && Number(heightCm) > 0;
+        let syncedDimensions = dimensions ?? null;
+        let syncedWidth = hasExplicitDims ? Number(widthCm) : null;
+        let syncedHeight = hasExplicitDims ? Number(heightCm) : null;
+
+        if (hasExplicitDims && !syncedDimensions) {
+          syncedDimensions = `${syncedWidth} × ${syncedHeight} cm`;
+        } else if (!hasExplicitDims && typeof dimensions === 'string' && dimensions.trim()) {
+          const parsed = parseDimPair(dimensions);
+          syncedWidth = parsed.widthCm;
+          syncedHeight = parsed.heightCm;
+        }
+        const syncedDepth = Number(depthCm) > 0 ? Number(depthCm) : null;
+
         await env.DB.prepare(`
           UPDATE artworks
           SET title = COALESCE(?, title),
               dimensions = COALESCE(?, dimensions),
+              width_cm = COALESCE(?, width_cm),
+              height_cm = COALESCE(?, height_cm),
+              depth_cm = COALESCE(?, depth_cm),
+              instagram_url = COALESCE(?, instagram_url),
+              raw_image = COALESCE(?, raw_image),
               status = COALESCE(?, status),
               technique = COALESCE(?, technique),
               medium = COALESCE(?, medium),
@@ -600,7 +669,12 @@ export default {
         `)
           .bind(
             title ?? null,
-            dimensions ?? null,
+            syncedDimensions,
+            syncedWidth,
+            syncedHeight,
+            syncedDepth,
+            instagramUrl ?? null,
+            rawImage ?? null,
             status ?? null,
             technique ?? null,
             medium ?? null,
@@ -611,6 +685,7 @@ export default {
 
         let resolvedImages;
         let deletedKeys = [];
+        let preservedRawImage = null;
 
         if (Array.isArray(detailImages) && detailImages.length > 0) {
           const { results: oldImgRows } = await env.DB.prepare(
@@ -621,11 +696,12 @@ export default {
           const oldUrls = (oldImgRows || []).map((r) => r.image_url);
 
           const artRow = await env.DB.prepare(
-            `SELECT folder_name FROM artworks WHERE id = ?`
+            `SELECT folder_name, raw_image FROM artworks WHERE id = ?`
           )
             .bind(id)
             .first();
           const folder = (artRow && artRow.folder_name) || id.replace(/^art-/, '');
+          let uploadedNewCover = false;
 
           resolvedImages = [];
           for (let idx = 0; idx < detailImages.length; idx++) {
@@ -646,6 +722,7 @@ export default {
                   });
                 }
 
+                if (idx === 0) uploadedNewCover = true;
                 resolvedImages.push(`images/${r2Key}`);
                 continue;
               }
@@ -656,10 +733,18 @@ export default {
           }
 
           if (resolvedImages.length > 0) {
+            if (uploadedNewCover && (!artRow || !artRow.raw_image) && oldUrls[0]) {
+              preservedRawImage = oldUrls[0];
+            }
+
             const stmts = [
-              env.DB.prepare(
-                `UPDATE artworks SET cover_image = ?, photo_count = ? WHERE id = ?`
-              ).bind(resolvedImages[0], resolvedImages.length, id),
+              preservedRawImage
+                ? env.DB.prepare(
+                    `UPDATE artworks SET cover_image = ?, photo_count = ?, raw_image = ? WHERE id = ?`
+                  ).bind(resolvedImages[0], resolvedImages.length, preservedRawImage, id)
+                : env.DB.prepare(
+                    `UPDATE artworks SET cover_image = ?, photo_count = ? WHERE id = ?`
+                  ).bind(resolvedImages[0], resolvedImages.length, id),
               env.DB.prepare(`DELETE FROM artwork_images WHERE artwork_id = ?`).bind(id),
             ];
             resolvedImages.forEach((imgUrl, i) => {
@@ -677,6 +762,7 @@ export default {
         }
 
         const respPayload = { success: true, id, deletedFiles: deletedKeys.length };
+        if (preservedRawImage) respPayload.rawImage = preservedRawImage;
         if (resolvedImages && resolvedImages.length > 0) {
           respPayload.coverImage = resolvedImages[0];
           respPayload.detailImages = resolvedImages;
@@ -704,7 +790,7 @@ export default {
           .bind(id)
           .all();
         const artRow = await env.DB.prepare(
-          `SELECT cover_image FROM artworks WHERE id = ?`
+          `SELECT cover_image, raw_image FROM artworks WHERE id = ?`
         )
           .bind(id)
           .first();
@@ -712,6 +798,9 @@ export default {
         const candidateUrls = (imgRows || []).map((r) => r.image_url);
         if (artRow && artRow.cover_image) {
           candidateUrls.push(artRow.cover_image);
+        }
+        if (artRow && artRow.raw_image) {
+          candidateUrls.push(artRow.raw_image);
         }
 
         await env.DB.batch([

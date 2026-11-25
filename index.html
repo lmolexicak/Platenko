@@ -129,8 +129,8 @@
           <textarea id="editDescription" class="edit-input" rows="5" placeholder="Napíš príbeh, popis techniky, myšlienku za maľbou..."></textarea>
         </div>
 
-        <!-- 3. Riadok: Technika, Stav, Rozmery, Materiál (4 stĺpce vedľa seba) -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px;">
+        <!-- 3. Riadok: Technika, Stav, Rozmery, Materiál -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px;">
           <div>
             <label class="edit-label">Technika</label>
             <select id="editTechnique" class="edit-select">
@@ -149,12 +149,20 @@
             </select>
           </div>
           <div>
-            <label class="edit-label">Rozmery</label>
+            <label class="edit-label">Rozmery (Š × V cm)</label>
             <input type="text" id="editDimensions" class="edit-input" placeholder="50 × 70 cm">
+          </div>
+          <div>
+            <label class="edit-label">Hĺbka plátna (cm)</label>
+            <input type="number" id="editDepthCm" class="edit-input" min="1" max="15" step="0.5" value="4" placeholder="4">
           </div>
           <div>
             <label class="edit-label">Materiál / Medium</label>
             <input type="text" id="editMedium" class="edit-input" placeholder="Akryl na plátne">
+          </div>
+          <div>
+            <label class="edit-label">Instagram URL</label>
+            <input type="url" id="editInstagramUrl" class="edit-input" placeholder="https://www.instagram.com/p/...">
           </div>
         </div>
 
@@ -237,52 +245,219 @@
     </div>
   </div>
 
-  <!-- Artwork Detail Modal (Lightbox) -->
-  <div class="modal-overlay" id="artworkModal" role="dialog" aria-modal="true">
-    <div class="modal-content">
-      <button class="modal-close-btn" id="modalCloseBtn" aria-label="Close modal">✕</button>
-      
-      <!-- Left: Visuals & Thumbnails -->
-      <div class="modal-visuals">
-        <div class="modal-main-image modal-main-image-wrap">
-          <button class="modal-nav-arrow prev" id="modalPrevBtn" title="Predchádzajúca fotka">‹</button>
-          <img id="modalMainImage" src="" alt="Detail maľby">
-          <button class="modal-nav-arrow next" id="modalNextBtn" title="Ďalšia fotka">›</button>
+  <!-- Full-Screen 3-Tab Artwork Detail Modal (Phase 2) -->
+  <div class="modal-overlay detail-modal-overlay" id="artworkModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="detail-modal-shell">
+
+      <!-- Modal Header & Tab Navigation -->
+      <div class="detail-header">
+        <div class="detail-header-title">
+          <h2 id="modalTitle" class="modal-title"></h2>
+          <span id="modalHeaderMeta" class="detail-header-meta"></span>
         </div>
-        <div class="modal-thumbs" id="modalThumbs">
-          <!-- Thumbnails populated dynamically -->
+        <div class="detail-header-right">
+          <span id="modalStatus" class="status-pill"></span>
+          <button class="modal-close-btn detail-close-btn" id="modalCloseBtn" aria-label="Zavrieť">✕</button>
         </div>
       </div>
 
-      <!-- Right: Artwork Specs & Inquiry -->
-      <div class="modal-info">
-        <div class="modal-meta-top">
-          <span id="modalYear" style="color: var(--text-light); font-size: 0.85rem; font-weight: 500;"></span>
-          <span id="modalStatus" class="card-badge"></span>
-        </div>
-        
-        <h2 id="modalTitle" class="modal-title"></h2>
-        <p id="modalMedium" style="color: var(--text-muted); font-size: 0.92rem; margin-bottom: 12px;"></p>
-        
-        <div class="modal-specs">
-          <div class="spec-item">
-            <span>Rozmery</span>
-            <strong id="modalDimensions"></strong>
-          </div>
-          <div class="spec-item">
-            <span>Podklad</span>
-            <strong>Napnuté plátno na ráme</strong>
-          </div>
-        </div>
-
-        <p id="modalDescription" class="modal-desc"></p>
-
-        <div class="modal-actions">
-          <button id="modalInquireBtn" class="btn-primary">
-            Mám záujem o toto dielo
-          </button>
-        </div>
+      <div class="detail-tabs" role="tablist">
+        <button type="button" class="detail-tab-btn active" data-tab="detail" role="tab" aria-selected="true">
+          🔍 Detail &amp; Štruktúra
+        </button>
+        <button type="button" class="detail-tab-btn" data-tab="insitu" role="tab" aria-selected="false">
+          🛋️ V interiéri
+        </button>
+        <button type="button" class="detail-tab-btn" data-tab="info" role="tab" aria-selected="false">
+          ℹ️ Informácie &amp; Dopyt
+        </button>
       </div>
+
+      <!-- TAB 1: Detail & Štruktúra (Deep Zoom + Raking Light) -->
+      <section class="detail-tab-panel active" data-panel="detail">
+        <div class="detail-stage-wrap">
+          <div class="detail-stage" id="detailStage">
+            <button class="modal-nav-arrow prev" id="modalPrevBtn" title="Predchádzajúca fotka">‹</button>
+            <div class="detail-transform-layer" id="detailTransformLayer">
+              <div class="detail-canvas-frame" id="detailCanvasWrap">
+                <img id="modalMainImage" src="" alt="Detail maľby" crossorigin="anonymous" draggable="false">
+                <canvas id="rakingCanvas" style="display: none;"></canvas>
+              </div>
+            </div>
+            <button class="modal-nav-arrow next" id="modalNextBtn" title="Ďalšia fotka">›</button>
+            <div id="rakingHint" class="raking-hint" style="display: none;">
+              💡 Pohybuj kurzorom alebo prstom po plátne pre nasvietenie reliéfu · Koliesko / dvojklik = Zoom
+            </div>
+          </div>
+
+          <div class="detail-bottom-bar">
+            <div class="detail-toolbar">
+              <div class="detail-zoom-group">
+                <button type="button" id="zoomOutBtn" class="detail-tool-btn" title="Oddialiť">−</button>
+                <button type="button" id="zoomResetBtn" class="detail-tool-btn detail-zoom-readout" title="Resetovať priblíženie">100%</button>
+                <button type="button" id="zoomInBtn" class="detail-tool-btn" title="Priblížiť">+</button>
+              </div>
+
+              <button type="button" id="rakingToggleBtn" class="detail-tool-btn raking-toggle-btn" aria-pressed="false" title="Simulácia bočného galerijného svetla pre reliéf farby">
+                💡 Bočné nasvietenie
+              </button>
+
+              <div id="rakingControlsWrap" class="raking-controls-wrap" style="display: none;">
+                <label for="rakingStrength" style="font-size: 0.78rem; color: var(--text-muted);">Reliéf:</label>
+                <input type="range" id="rakingStrength" min="0.4" max="3.0" step="0.1" value="1.6" style="width: 90px; accent-color: #18181B;">
+              </div>
+            </div>
+
+            <div class="modal-thumbs" id="modalThumbs">
+              <!-- Thumbnails populated dynamically -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: V interiéri (True-Scale In-Situ Simulator) -->
+      <section class="detail-tab-panel" data-panel="insitu">
+        <div class="insitu-layout">
+          <div class="insitu-stage" id="insituStage">
+            <div class="insitu-wall" id="insituWall" data-wall="warm-white">
+              <div class="insitu-painting-wrap" id="insituPaintingWrap">
+                <img id="insituPaintingImg" src="" alt="Náhľad maľby v interiéri" crossorigin="anonymous">
+                <div class="insitu-painting-depth" id="insituPaintingDepth"></div>
+                <span class="insitu-dim-tag" id="insituDimTag">50 × 70 cm</span>
+              </div>
+
+              <div class="insitu-sofa-wrap" id="insituSofaWrap">
+                <svg viewBox="0 0 440 160" preserveAspectRatio="none" aria-hidden="true" class="insitu-sofa-svg">
+                  <!-- Modern minimalist gallery sofa -->
+                  <rect x="34" y="14" width="372" height="72" rx="10" fill="#DDDCD6" stroke="#C4C3BC" stroke-width="2"/>
+                  <line x1="158" y1="16" x2="158" y2="84" stroke="#CECDC6" stroke-width="1.5"/>
+                  <line x1="282" y1="16" x2="282" y2="84" stroke="#CECDC6" stroke-width="1.5"/>
+                  <rect x="6" y="48" width="32" height="86" rx="7" fill="#D2D1CA" stroke="#B8B7B0" stroke-width="2"/>
+                  <rect x="402" y="48" width="32" height="86" rx="7" fill="#D2D1CA" stroke="#B8B7B0" stroke-width="2"/>
+                  <rect x="34" y="80" width="372" height="34" rx="5" fill="#E6E5DF" stroke="#C4C3BC" stroke-width="2"/>
+                  <line x1="220" y1="81" x2="220" y2="113" stroke="#CECDC6" stroke-width="1.5"/>
+                  <rect x="30" y="114" width="380" height="22" rx="4" fill="#CAC9C2"/>
+                  <rect x="44" y="136" width="12" height="24" rx="2" fill="#3F3F46"/>
+                  <rect x="384" y="136" width="12" height="24" rx="2" fill="#3F3F46"/>
+                </svg>
+                <span class="insitu-sofa-label" id="insituSofaLabel">Pohovka 220 cm</span>
+              </div>
+
+              <div class="insitu-baseboard"></div>
+              <div class="insitu-floor"></div>
+            </div>
+          </div>
+
+          <div class="insitu-controls">
+            <div class="insitu-control-group">
+              <span class="edit-label" style="margin-bottom: 6px;">Farba steny</span>
+              <div class="wall-swatches">
+                <button type="button" class="wall-swatch active" data-wall="warm-white" title="Teplá biela">
+                  <span class="swatch-dot" style="background: #F4F2EC;"></span> Teplá biela
+                </button>
+                <button type="button" class="wall-swatch" data-wall="concrete" title="Surový betón">
+                  <span class="swatch-dot" style="background: #C9C9C4;"></span> Surový betón
+                </button>
+                <button type="button" class="wall-swatch" data-wall="anthracite" title="Tmavý antracit">
+                  <span class="swatch-dot" style="background: #27292E;"></span> Tmavý antracit
+                </button>
+                <button type="button" class="wall-swatch" data-wall="sage" title="Šalviová">
+                  <span class="swatch-dot" style="background: #C5CFC4;"></span> Šalviová
+                </button>
+              </div>
+            </div>
+
+            <div class="insitu-control-group">
+              <label class="edit-label" for="insituSofaNumber" style="margin-bottom: 6px;">Šírka pohovky (cm)</label>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="range" id="insituSofaRange" min="140" max="350" step="5" value="220" style="width: 140px; accent-color: #18181B;">
+                <input type="number" id="insituSofaNumber" class="edit-input insitu-num-input" min="140" max="350" value="220">
+              </div>
+            </div>
+
+            <div class="insitu-control-group">
+              <label class="edit-label" for="insituCeilingNumber" style="margin-bottom: 6px;">Výška stropu (cm)</label>
+              <input type="number" id="insituCeilingNumber" class="edit-input insitu-num-input" min="220" max="350" value="260">
+            </div>
+
+            <div class="insitu-readout" id="insituScaleReadout">
+              Obraz 50 × 70 × 4 cm · Stred 145 cm nad podlahou
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: Informácie & Dopyt -->
+      <section class="detail-tab-panel" data-panel="info">
+        <div class="info-tab-grid">
+          <div class="info-col-left">
+            <div class="info-preview-row">
+              <img id="infoTabThumb" src="" alt="Náhľad diela" class="info-thumb-img">
+              <div>
+                <p id="modalDescription" class="modal-desc" style="margin-bottom: 14px;"></p>
+                <div id="modalInstaWrap">
+                  <a id="modalInstaLink" href="https://www.instagram.com/platenko.akryl" target="_blank" rel="noopener noreferrer" class="social-link">
+                    Zobraziť na Instagrame @platenko.akryl ↗
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <div class="info-specs-grid">
+              <div class="spec-item">
+                <span>Rozmery (Š × V × H)</span>
+                <strong id="modalDimensions"></strong>
+              </div>
+              <div class="spec-item">
+                <span>Podklad</span>
+                <strong>Napnuté plátno na ráme</strong>
+              </div>
+              <div class="spec-item">
+                <span>Médium</span>
+                <strong id="modalMedium"></strong>
+              </div>
+              <div class="spec-item">
+                <span>Technika</span>
+                <strong id="modalTechnique"></strong>
+              </div>
+              <div class="spec-item">
+                <span>Dátum / Rok</span>
+                <strong id="modalYear"></strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="inquiry-card">
+            <h3 style="font-size: 1.1rem; margin-bottom: 6px;">✉️ Dopyt na dielo</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
+              Máte záujem o kúpu, rezerváciu alebo bližšie informácie k tomuto obrazu?
+            </p>
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              <div>
+                <label class="edit-label" for="inquiryName">Vaše meno</label>
+                <input type="text" id="inquiryName" class="edit-input" placeholder="Meno a priezvisko">
+              </div>
+              <div>
+                <label class="edit-label" for="inquiryContact">Váš e-mail alebo telefón</label>
+                <input type="text" id="inquiryContact" class="edit-input" placeholder="napr. meno@domena.sk">
+              </div>
+              <div>
+                <label class="edit-label" for="inquiryMessage">Správa</label>
+                <textarea id="inquiryMessage" class="edit-input" rows="4"></textarea>
+              </div>
+              <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px;">
+                <button type="button" id="modalInquireBtn" class="btn-primary" style="flex: 1;">
+                  ✉️ Odoslať dopyt e-mailom
+                </button>
+                <button type="button" id="modalCopyInquiryBtn" class="btn-secondary">
+                  📋 Skopírovať správu
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
     </div>
   </div>
 
@@ -368,6 +543,7 @@
 
   <!-- Scripts -->
   <script src="artworks.js"></script>
+  <script src="detail-modal.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
