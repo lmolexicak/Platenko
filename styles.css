@@ -2845,12 +2845,43 @@ footer {
 
 /* Mobile Responsive Adjustments for Navigation, Detail Actions, AR & 3D Gallery */
 @media (max-width: 768px) {
+  .container {
+    padding: 0 14px;
+  }
+  .nav-inner {
+    height: auto;
+    min-height: 62px;
+    padding: 10px 0;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+  }
+  .brand {
+    gap: 8px;
+  }
+  .brand-logo {
+    height: 34px;
+  }
+  .brand-title {
+    font-size: 1.5rem;
+  }
   .brand-subtitle {
     display: none;
   }
+  .nav-actions {
+    gap: 6px;
+  }
+  .theme-toggle-btn {
+    padding: 6px 10px;
+  }
+  .theme-toggle-btn span {
+    display: none;
+  }
+  .view-switcher {
+    max-width: 100%;
+  }
   .view-switch-btn {
-    padding: 5px 11px;
-    font-size: 0.78rem;
+    padding: 5px 10px;
+    font-size: 0.76rem;
   }
   .detail-header {
     padding: 10px 14px;
