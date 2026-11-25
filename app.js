@@ -30,6 +30,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let activeFilter = "all";
   let currentFilteredList = [];
   let displayedCount = 0;
+  let renderedEntries = [];
+  let layoutRafId = null;
+  let resizeTimerId = null;
 
   let _isAuthenticated = false;
   let _authUsername = null;
@@ -441,13 +444,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     galleryGrid.innerHTML = "";
     displayedCount = 0;
+    renderedEntries = [];
 
     const allBtn = document.querySelector('[data-filter="all"]');
     if (allBtn) allBtn.textContent = `Všetky maľby (${all.length})`;
 
     if (currentFilteredList.length === 0) {
       galleryGrid.innerHTML = `
-        <div style="grid-column: 1/-1; text-align: center; padding: 60px 0; color: var(--text-muted);">
+        <div style="text-align: center; padding: 60px 0; color: var(--text-muted);">
           V tejto kategórii sa nenašli žiadne maľby.
         </div>`;
       if (loadMoreWrap) loadMoreWrap.style.display = "none";
@@ -455,6 +459,132 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     renderNextBatch();
+  }
+
+  function clampRatio(r) {
+    if (!Number.isFinite(r) || r <= 0) return 5 / 7;
+    return Math.min(2.3, Math.max(0.42, r));
+  }
+
+  function getInitialAspectRatio(art) {
+    let w = Number(art && art.widthCm);
+    let h = Number(art && art.heightCm);
+    if (!(w > 0 && h > 0) && art && typeof art.dimensions === "string") {
+      const nums = art.dimensions.match(/\d+(?:[.,]\d+)?/g);
+      if (nums && nums.length >= 2) {
+        w = parseFloat(nums[0].replace(",", "."));
+        h = parseFloat(nums[1].replace(",", "."));
+      }
+    }
+    return (w > 0 && h > 0) ? clampRatio(w / h) : (5 / 7);
+  }
+
+  function layoutJustifiedGallery() {
+    layoutRafId = null;
+    if (!galleryGrid || renderedEntries.length === 0) return;
+
+    const containerW = galleryGrid.clientWidth;
+    if (!containerW || containerW < 100) return;
+
+    // Mobile single-column stack: natural uncropped aspect per card
+    if (window.innerWidth < 640 || containerW < 520) {
+      galleryGrid.classList.add("is-mobile-stack");
+      galleryGrid.innerHTML = "";
+      renderedEntries.forEach((entry) => {
+        entry.card.style.width = "";
+        entry.imgWrap.style.height = "";
+        galleryGrid.appendChild(entry.card);
+      });
+      return;
+    }
+
+    galleryGrid.classList.remove("is-mobile-stack");
+    const targetH = containerW >= 1020 ? 355 : (containerW >= 740 ? 305 : 265);
+    const maxRowH = targetH * 1.32;
+    const gap = containerW >= 1020 ? 30 : 22;
+
+    const rows = [];
+    let i = 0;
+    while (i < renderedEntries.length) {
+      let sumRatio = 0;
+      let count = 0;
+      let chosenCount = 1;
+      let chosenH = targetH;
+
+      for (let j = i; j < renderedEntries.length; j++) {
+        sumRatio += renderedEntries[j].ratio;
+        count++;
+        const availW = containerW - gap * (count - 1);
+        const hCurr = availW / sumRatio;
+
+        if (hCurr <= targetH || j === renderedEntries.length - 1) {
+          if (count > 1 && j < renderedEntries.length - 1) {
+            const prevSum = sumRatio - renderedEntries[j].ratio;
+            const hPrev = (containerW - gap * (count - 2)) / prevSum;
+            if (Math.abs(hPrev - targetH) < Math.abs(hCurr - targetH) && hPrev <= maxRowH) {
+              chosenCount = count - 1;
+              chosenH = hPrev;
+            } else {
+              chosenCount = count;
+              chosenH = hCurr;
+            }
+          } else {
+            chosenCount = count;
+            chosenH = hCurr;
+          }
+          break;
+        }
+      }
+
+      const isLastRow = (i + chosenCount) >= renderedEntries.length;
+      if (isLastRow && chosenH > targetH * 1.15) {
+        chosenH = targetH;
+      } else {
+        chosenH = Math.min(maxRowH, Math.max(190, chosenH));
+      }
+
+      rows.push({
+        items: renderedEntries.slice(i, i + chosenCount),
+        height: chosenH,
+        isLastRow,
+      });
+      i += chosenCount;
+    }
+
+    const frag = document.createDocumentFragment();
+    rows.forEach((row) => {
+      const rowEl = document.createElement("div");
+      rowEl.className = "gallery-row";
+      rowEl.style.gap = `${gap}px`;
+
+      const rowH = Math.round(row.height);
+      const totalGapW = gap * (row.items.length - 1);
+      const fullWidthRow = !row.isLastRow || (row.items.reduce((s, it) => s + rowH * it.ratio, 0) + totalGapW >= containerW - 4);
+      let usedW = 0;
+
+      row.items.forEach((entry, idx) => {
+        let cardW;
+        if (fullWidthRow && idx === row.items.length - 1) {
+          cardW = Math.max(80, containerW - totalGapW - usedW);
+        } else {
+          cardW = Math.max(80, Math.round(rowH * entry.ratio));
+          usedW += cardW;
+        }
+        entry.card.style.width = `${cardW}px`;
+        entry.imgWrap.style.height = `${rowH}px`;
+        rowEl.appendChild(entry.card);
+      });
+
+      frag.appendChild(rowEl);
+    });
+
+    galleryGrid.innerHTML = "";
+    galleryGrid.appendChild(frag);
+  }
+
+  function scheduleJustifiedLayout() {
+    if (layoutRafId !== null) return;
+    layoutRafId = requestAnimationFrame(layoutJustifiedGallery);
   }
 
   function renderNextBatch() {
@@ -486,11 +616,38 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       `;
 
+      const imgWrap = card.querySelector(".card-image-wrap");
+      const img = imgWrap.querySelector("img");
+      const entry = {
+        art,
+        card,
+        imgWrap,
+        img,
+        ratio: getInitialAspectRatio(art),
+      };
+
+      const updateRatioFromImage = () => {
+        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+          const naturalRatio = clampRatio(img.naturalWidth / img.naturalHeight);
+          if (Math.abs(naturalRatio - entry.ratio) > 0.015) {
+            entry.ratio = naturalRatio;
+            scheduleJustifiedLayout();
+          }
+        }
+      };
+
+      if (img.complete && img.naturalWidth > 0) {
+        entry.ratio = clampRatio(img.naturalWidth / img.naturalHeight);
+      } else {
+        img.addEventListener("load", updateRatioFromImage);
+      }
+
       card.addEventListener("click", () => openArtworkModal(art));
-      galleryGrid.appendChild(card);
+      renderedEntries.push(entry);
     });
 
     displayedCount += nextBatch.length;
+    layoutJustifiedGallery();
 
     if (loadMoreWrap) {
       if (displayedCount >= currentFilteredList.length) {
@@ -502,6 +659,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
   }
+
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimerId);
+    resizeTimerId = setTimeout(scheduleJustifiedLayout, 90);
+  });
 
   if (loadMoreBtn) loadMoreBtn.addEventListener("click", renderNextBatch);
 
