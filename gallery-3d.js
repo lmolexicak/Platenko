@@ -19,6 +19,9 @@
   const TOUR_PAUSE_MS = 5000;
   const CROSSFADE_EXIT_MS = 270;
   const TEXTURE_WINDOW_RADIUS = 18;
+  const FRAME_GAP = 0.011;
+  const FRAME_RAIL = 0.015;
+  const FRAME_BACK_D = 0.010;
 
   let THREE = null;
   let isMounted = false;
@@ -32,11 +35,13 @@
   let animRafId = null;
   let lastFrameTime = 0;
   let roomCount = 1;
-  let entries = []; // [{ index, art, roomIdx, dims, mesh, shadowMesh, frameGroup, center, normal, loadedTexture, frontMat }]
+  let entries = []; // [{ index, art, roomIdx, dims, mesh, shadowMesh, frameGroup, washPlane, plaqueMesh, center, normal, loadedTexture, frontMat }]
   let raycastMeshes = [];
   let floorMesh = null;
   let waypointRing = null;
   let disposables = [];
+  let sharedFrameOuterMat = null;
+  let sharedFrameRecessMat = null;
 
   // Camera & Phase 4 Transition State
   // state: "free" | "moving" | "focused" | "exiting_crossfade"
@@ -47,6 +52,8 @@
 
   let moveStartPos = null;
   let moveEndPos = null;
+  let moveCurve = null;
+  let moveIsCrossRoom = false;
   let moveStartYaw = 0;
   let moveEndYaw = 0;
   let moveStartPitch = 0;
@@ -94,6 +101,7 @@
     el.plaque = document.getElementById("gallery3dPlaque");
     el.plaqueTitle = document.getElementById("g3dPlaqueTitle");
     el.plaqueMeta = document.getElementById("g3dPlaqueMeta");
+    el.overviewHint = document.getElementById("gallery3dOverviewHint");
     el.detailBtn = document.getElementById("g3dDetailBtn");
     el.arBtn = document.getElementById("g3dArBtn");
     el.shareBtn = document.getElementById("g3dShareBtn");
@@ -187,32 +195,118 @@
 
   function createSoftShadowTexture() {
     const c = document.createElement("canvas");
-    c.width = 128;
-    c.height = 128;
+    c.width = 256;
+    c.height = 256;
     const ctx = c.getContext("2d");
-    const grad = ctx.createRadialGradient(64, 64, 16, 64, 64, 64);
-    grad.addColorStop(0, "rgba(0,0,0,0.28)");
-    grad.addColorStop(0.68, "rgba(0,0,0,0.14)");
-    grad.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 128, 128);
+    const pad = 34;
+    const w = 256 - pad * 2;
+    const h = 256 - pad * 2;
+    const r = 8;
+
+    ctx.save();
+    ctx.shadowColor = "rgba(18, 16, 14, 0.44)";
+    ctx.shadowBlur = 24;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillStyle = "rgba(18, 16, 14, 0.44)";
+    ctx.beginPath();
+    ctx.moveTo(pad + r, pad);
+    ctx.lineTo(pad + w - r, pad);
+    ctx.quadraticCurveTo(pad + w, pad, pad + w, pad + r);
+    ctx.lineTo(pad + w, pad + h - r);
+    ctx.quadraticCurveTo(pad + w, pad + h, pad + w - r, pad + h);
+    ctx.lineTo(pad + r, pad + h);
+    ctx.quadraticCurveTo(pad, pad + h, pad, pad + h - r);
+    ctx.lineTo(pad, pad + r);
+    ctx.quadraticCurveTo(pad, pad, pad + r, pad);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
     return track(new THREE.CanvasTexture(c));
   }
 
   function createWallSpotWashTexture() {
     const c = document.createElement("canvas");
-    c.width = 128;
-    c.height = 256;
+    c.width = 256;
+    c.height = 512;
     const ctx = c.getContext("2d");
-    const grad = ctx.createRadialGradient(64, 52, 8, 64, 108, 118);
-    grad.addColorStop(0, "rgba(255, 246, 229, 0.18)");
-    grad.addColorStop(0.6, "rgba(255, 246, 229, 0.06)");
-    grad.addColorStop(1, "rgba(255, 246, 229, 0)");
+    const grad = ctx.createRadialGradient(128, 92, 16, 128, 220, 232);
+    grad.addColorStop(0, "rgba(255, 249, 235, 0.46)");
+    grad.addColorStop(0.42, "rgba(255, 248, 232, 0.20)");
+    grad.addColorStop(0.76, "rgba(255, 247, 228, 0.06)");
+    grad.addColorStop(1, "rgba(255, 246, 226, 0)");
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 128, 256);
+    ctx.fillRect(0, 0, 256, 512);
     const tex = track(new THREE.CanvasTexture(c));
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
+  }
+
+  function createWallPlaqueTexture() {
+    const c = document.createElement("canvas");
+    c.width = 256;
+    c.height = 160;
+    const ctx = c.getContext("2d");
+
+    ctx.fillStyle = "rgba(24, 24, 27, 0.14)";
+    ctx.fillRect(10, 12, 238, 138);
+
+    ctx.fillStyle = "#FAF9F6";
+    ctx.fillRect(6, 8, 238, 138);
+    ctx.strokeStyle = "rgba(24, 24, 27, 0.14)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(7, 9, 236, 136);
+
+    ctx.fillStyle = "#27272A";
+    ctx.fillRect(26, 38, 148, 11);
+    ctx.fillStyle = "#71717A";
+    ctx.fillRect(26, 68, 178, 7);
+    ctx.fillStyle = "#A1A1AA";
+    ctx.fillRect(26, 88, 124, 7);
+    ctx.fillStyle = "#D4D4D8";
+    ctx.fillRect(26, 112, 74, 5);
+
+    const tex = track(new THREE.CanvasTexture(c));
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  function buildArtworkFrameGroup(dims, frameOuterMat, frameRecessMat) {
+    const group = new THREE.Group();
+    const recessGeo = track(new THREE.BoxGeometry(dims.wM + FRAME_GAP * 2, dims.hM + FRAME_GAP * 2, FRAME_BACK_D));
+    const recessMesh = new THREE.Mesh(recessGeo, frameRecessMat);
+    recessMesh.position.set(0, 0, FRAME_BACK_D / 2);
+    group.add(recessMesh);
+
+    const ow = dims.wM + (FRAME_GAP + FRAME_RAIL) * 2;
+    const oh = dims.hM + (FRAME_GAP + FRAME_RAIL) * 2;
+    const fd = FRAME_BACK_D + dims.dM + 0.004;
+
+    const topGeo = track(new THREE.BoxGeometry(ow, FRAME_RAIL, fd));
+    const topRail = new THREE.Mesh(topGeo, frameOuterMat);
+    topRail.position.set(0, oh / 2 - FRAME_RAIL / 2, fd / 2);
+    group.add(topRail);
+
+    const botGeo = track(new THREE.BoxGeometry(ow, FRAME_RAIL, fd));
+    const botRail = new THREE.Mesh(botGeo, frameOuterMat);
+    botRail.position.set(0, -(oh / 2 - FRAME_RAIL / 2), fd / 2);
+    group.add(botRail);
+
+    const sideH = Math.max(0.02, oh - FRAME_RAIL * 2);
+    const leftGeo = track(new THREE.BoxGeometry(FRAME_RAIL, sideH, fd));
+    const leftRail = new THREE.Mesh(leftGeo, frameOuterMat);
+    leftRail.position.set(-(ow / 2 - FRAME_RAIL / 2), 0, fd / 2);
+    group.add(leftRail);
+
+    const rightGeo = track(new THREE.BoxGeometry(FRAME_RAIL, sideH, fd));
+    const rightRail = new THREE.Mesh(rightGeo, frameOuterMat);
+    rightRail.position.set(ow / 2 - FRAME_RAIL / 2, 0, fd / 2);
+    group.add(rightRail);
+
+    group.userData.outerW = ow;
+    group.userData.outerH = oh;
+    return group;
   }
 
   // ---- Build Multi-Room White Cube Architecture ----
@@ -221,7 +315,7 @@
     const totalLen = roomCount * ROOM_LENGTH;
 
     const wallMat = track(new THREE.MeshStandardMaterial({
-      color: 0xF7F7F5,
+      color: 0xF3F2ED,
       roughness: 0.94,
       metalness: 0.0,
     }));
@@ -263,7 +357,7 @@
     ceilMesh.position.set(0, ROOM_HEIGHT, -totalLen / 2);
     scene.add(ceilMesh);
 
-    // Side walls (continuous matte #F7F7F5)
+    // Side walls (continuous matte #F3F2ED)
     const sideWallGeo = track(new THREE.PlaneGeometry(totalLen, ROOM_HEIGHT));
     const leftWall = new THREE.Mesh(sideWallGeo, wallMat);
     leftWall.rotation.y = Math.PI / 2;
@@ -346,41 +440,55 @@
     fillLight.position.set(-4, 6, -6);
     scene.add(fillLight);
 
-    // Populate artworks as true-scale stretched canvases along room walls
+    // Populate artworks as true-scale stretched canvases in modern Shadow-Box floater frames
     entries = [];
     raycastMeshes = [];
-    const canvasSideMat = track(new THREE.MeshStandardMaterial({ color: 0xECEAE4, roughness: 0.88 }));
+    sharedFrameOuterMat = track(new THREE.MeshStandardMaterial({ color: 0x1E1E22, roughness: 0.52, metalness: 0.08 }));
+    sharedFrameRecessMat = track(new THREE.MeshStandardMaterial({ color: 0x0E0E10, roughness: 0.96, metalness: 0.0 }));
+    const canvasSideMat = track(new THREE.MeshStandardMaterial({ color: 0xDCD7CE, roughness: 0.86 }));
+    const spotLensMat = track(new THREE.MeshBasicMaterial({ color: 0xFFF4DC }));
     const shadowTex = createSoftShadowTexture();
-    const shadowMat = track(new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, opacity: 0.72, depthWrite: false }));
+    const shadowMat = track(new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, opacity: 0.85, depthWrite: false }));
     const spotWashTex = createWallSpotWashTexture();
-    const spotWashMat = track(new THREE.MeshBasicMaterial({ map: spotWashTex, transparent: true, opacity: 0.65, depthWrite: false }));
+    const spotWashMat = track(new THREE.MeshBasicMaterial({ map: spotWashTex, transparent: true, opacity: 0.78, depthWrite: false }));
+    const plaqueTex = createWallPlaqueTexture();
+    const plaqueMat = track(new THREE.MeshBasicMaterial({ map: plaqueTex, transparent: true }));
+    const plaqueGeo = track(new THREE.PlaneGeometry(0.14, 0.088));
     const spotHeadGeo = track(new THREE.CylinderGeometry(0.035, 0.045, 0.14, 12));
+    const spotLensGeo = track(new THREE.CircleGeometry(0.036, 12));
 
     artworksList.forEach((art, idx) => {
       const roomIdx = Math.floor(idx / PER_ROOM);
       const localIdx = idx % PER_ROOM;
       const isLeft = localIdx < PER_WALL;
-      const slot = isLeft ? localIdx : (localIdx - PER_WALL);
+      // Boustrophedon perimeter path: 0..4 down left wall, 4..0 back along right wall
+      const slot = isLeft ? localIdx : (PER_WALL - 1) - (localIdx - PER_WALL);
 
       const dims = parseDimensionsCm(art);
       const stepZ = (ROOM_LENGTH - 3.2) / PER_WALL;
       const z = -roomIdx * ROOM_LENGTH - (1.6 + stepZ * (slot + 0.5));
       const xWall = isLeft ? -ROOM_WIDTH / 2 : ROOM_WIDTH / 2;
       const normalX = isLeft ? 1 : -1;
-      const yCenter = clamp(Math.max(1.52, 0.45 + dims.hM / 2), 1.1, ROOM_HEIGHT - 0.38 - dims.hM / 2);
+      const yCenter = clamp(Math.max(1.52, 0.52 + dims.hM / 2), 1.15, ROOM_HEIGHT - 0.42 - dims.hM / 2);
 
       const holder = new THREE.Group();
       holder.position.set(xWall, yCenter, z);
       holder.rotation.y = isLeft ? Math.PI / 2 : -Math.PI / 2;
       scene.add(holder);
 
-      // Soft contact shadow plane
-      const shGeo = track(new THREE.PlaneGeometry(dims.wM + 0.08, dims.hM + 0.08));
+      const frameGroup = buildArtworkFrameGroup(dims, sharedFrameOuterMat, sharedFrameRecessMat);
+      const ow = frameGroup.userData.outerW;
+      const oh = frameGroup.userData.outerH;
+
+      // Soft rectangular wall contact drop shadow
+      const shGeo = track(new THREE.PlaneGeometry(ow + 0.16, oh + 0.16));
       const shadowMesh = new THREE.Mesh(shGeo, shadowMat);
-      shadowMesh.position.set(0.008, -0.015, 0.003);
+      shadowMesh.position.set(0.014, -0.024, 0.002);
       holder.add(shadowMesh);
 
-      // Stretched canvas mesh (1:1 meters)
+      holder.add(frameGroup);
+
+      // Stretched canvas mesh (1:1 meters) nested inside floater frame
       const boxGeo = track(new THREE.BoxGeometry(dims.wM, dims.hM, dims.dM));
       const frontMat = track(new THREE.MeshStandardMaterial({
         color: 0xE8E6E0,
@@ -388,20 +496,34 @@
         metalness: 0.02,
       }));
       const mesh = new THREE.Mesh(boxGeo, [canvasSideMat, canvasSideMat, canvasSideMat, canvasSideMat, frontMat, canvasSideMat]);
-      mesh.position.set(0, 0, dims.dM / 2);
+      mesh.position.set(0, 0, FRAME_BACK_D + dims.dM / 2);
       mesh.userData.entryIndex = idx;
       holder.add(mesh);
       raycastMeshes.push(mesh);
 
-      // Subtle museum track spotlight head + soft warm wash above canvas
-      const washPlane = new THREE.Mesh(track(new THREE.PlaneGeometry(Math.max(1.1, dims.wM * 1.65), 2.1)), spotWashMat);
-      washPlane.position.set(0, Math.min(ROOM_HEIGHT - yCenter - 0.8, 0.55), 0.002);
+      // Warm 3500K museum wall wash cone
+      const washPlane = new THREE.Mesh(track(new THREE.PlaneGeometry(Math.max(1.4, ow * 1.9), 2.5)), spotWashMat);
+      washPlane.position.set(0, Math.min(ROOM_HEIGHT - yCenter - 0.85, 0.58), 0.0015);
       holder.add(washPlane);
 
+      // Minimalist gallery wall plaque beside lower-right corner
+      const plaqueMesh = new THREE.Mesh(plaqueGeo, plaqueMat);
+      plaqueMesh.position.set(ow / 2 + 0.105, -oh / 2 + 0.055, 0.003);
+      plaqueMesh.userData.entryIndex = idx;
+      holder.add(plaqueMesh);
+      raycastMeshes.push(plaqueMesh);
+
+      // Ceiling track spotlight fixture with lit warm lens
+      const spotGroup = new THREE.Group();
+      spotGroup.position.set(isLeft ? -ROOM_WIDTH / 2 + 1.55 : ROOM_WIDTH / 2 - 1.55, ROOM_HEIGHT - 0.1, z);
+      spotGroup.rotation.z = isLeft ? -0.55 : 0.55;
       const spotHead = new THREE.Mesh(spotHeadGeo, trackMat);
-      spotHead.position.set(isLeft ? -ROOM_WIDTH / 2 + 1.55 : ROOM_WIDTH / 2 - 1.55, ROOM_HEIGHT - 0.1, z);
-      spotHead.rotation.z = isLeft ? -0.55 : 0.55;
-      scene.add(spotHead);
+      spotGroup.add(spotHead);
+      const spotLens = new THREE.Mesh(spotLensGeo, spotLensMat);
+      spotLens.position.set(0, -0.071, 0);
+      spotLens.rotation.x = Math.PI / 2;
+      spotGroup.add(spotLens);
+      scene.add(spotGroup);
 
       entries.push({
         index: idx,
@@ -411,10 +533,16 @@
         holder,
         mesh,
         shadowMesh,
+        frameGroup,
+        washPlane,
+        plaqueMesh,
+        xWall,
+        normalX,
+        zPos: z,
         frontMat,
         loadedTexture: null,
         loadingTexture: false,
-        center: new THREE.Vector3(xWall + normalX * dims.dM, yCenter, z),
+        center: new THREE.Vector3(xWall + normalX * (FRAME_BACK_D + dims.dM), yCenter, z),
         normal: new THREE.Vector3(normalX, 0, 0),
       });
     });
@@ -425,13 +553,44 @@
     const updatedDims = parseDimensionsCm(entry.art, natW, natH);
     if (updatedDims.wCm === entry.dims.wCm && updatedDims.hCm === entry.dims.hCm) return false;
     entry.dims = updatedDims;
+
+    const yCenter = clamp(Math.max(1.52, 0.52 + updatedDims.hM / 2), 1.15, ROOM_HEIGHT - 0.42 - updatedDims.hM / 2);
+    entry.holder.position.y = yCenter;
+    entry.center.set(entry.xWall + entry.normalX * (FRAME_BACK_D + updatedDims.dM), yCenter, entry.zPos);
+
     const newGeo = track(new THREE.BoxGeometry(updatedDims.wM, updatedDims.hM, updatedDims.dM));
     entry.mesh.geometry.dispose();
     entry.mesh.geometry = newGeo;
-    entry.mesh.position.z = updatedDims.dM / 2;
-    const newShGeo = track(new THREE.PlaneGeometry(updatedDims.wM + 0.08, updatedDims.hM + 0.08));
+    entry.mesh.position.z = FRAME_BACK_D + updatedDims.dM / 2;
+
+    if (entry.frameGroup) {
+      entry.frameGroup.traverse((child) => {
+        if (child.isMesh && child.geometry) {
+          child.geometry.dispose();
+        }
+      });
+      entry.holder.remove(entry.frameGroup);
+    }
+    const newFrameGroup = buildArtworkFrameGroup(updatedDims, sharedFrameOuterMat, sharedFrameRecessMat);
+    entry.holder.add(newFrameGroup);
+    entry.frameGroup = newFrameGroup;
+
+    const ow = newFrameGroup.userData.outerW;
+    const oh = newFrameGroup.userData.outerH;
+
+    const newShGeo = track(new THREE.PlaneGeometry(ow + 0.16, oh + 0.16));
     entry.shadowMesh.geometry.dispose();
     entry.shadowMesh.geometry = newShGeo;
+
+    if (entry.plaqueMesh) {
+      entry.plaqueMesh.position.set(ow / 2 + 0.105, -oh / 2 + 0.055, 0.003);
+    }
+    if (entry.washPlane) {
+      const newWashGeo = track(new THREE.PlaneGeometry(Math.max(1.4, ow * 1.9), 2.5));
+      entry.washPlane.geometry.dispose();
+      entry.washPlane.geometry = newWashGeo;
+      entry.washPlane.position.y = Math.min(ROOM_HEIGHT - yCenter - 0.85, 0.58);
+    }
 
     if (camState === "focused" && focusedEntry === entry && renderer && camera) {
       const target = computeViewingPose(entry);
@@ -446,6 +605,9 @@
       moveEndPos = target.pos;
       moveEndYaw = target.yaw;
       moveEndPitch = target.pitch;
+      const pathInfo = buildTransitionPath(camPos, target.pos);
+      moveCurve = pathInfo.curve;
+      moveIsCrossRoom = pathInfo.isCrossRoom;
     }
     return true;
   }
@@ -513,10 +675,42 @@
     vec.y = EYE_HEIGHT;
   }
 
+  function setOverviewHintVisible(visible) {
+    if (!el.overviewHint) return;
+    el.overviewHint.hidden = !visible || tourActive;
+  }
+
   function updateRoomBadge() {
     if (!el.roomBadge || !camPos) return;
     const r = clamp(Math.floor(Math.abs(camPos.z) / ROOM_LENGTH) + 1, 1, roomCount);
-    el.roomBadge.textContent = `Sála ${r} / ${roomCount}`;
+    if (focusedEntry && entries.length > 0) {
+      el.roomBadge.textContent = `Sála ${r} / ${roomCount} · #${focusedEntry.index + 1}/${entries.length}`;
+    } else {
+      el.roomBadge.textContent = `Sála ${r} / ${roomCount}`;
+    }
+  }
+
+  function updateNavArrowsState() {
+    if (!el.prevBtn || !el.nextBtn) return;
+    if (entries.length === 0) {
+      el.prevBtn.disabled = true;
+      el.nextBtn.disabled = true;
+      return;
+    }
+    const active = moveTargetEntry || focusedEntry;
+    if (active) {
+      el.prevBtn.disabled = active.index <= 0;
+      el.nextBtn.disabled = active.index >= entries.length - 1;
+      return;
+    }
+    if (camPos && camPos.z > -3.2) {
+      el.prevBtn.disabled = true;
+      el.nextBtn.disabled = false;
+      return;
+    }
+    const nearest = findNearestEntryIndex();
+    el.prevBtn.disabled = nearest <= 0;
+    el.nextBtn.disabled = nearest >= entries.length - 1;
   }
 
   // ---- Phase 4: Perpendicular Zoom-to-Fill & Glitch-Free 2D Photo Crossfade ----
@@ -532,12 +726,27 @@
     const dist = clamp(Math.max(distV, distH, 0.72), 0.72, 3.25);
 
     const pos = entry.center.clone().addScaledVector(entry.normal, dist);
-    const yaw = Math.atan2(-entry.normal.x, -entry.normal.z);
+    const yaw = Math.atan2(entry.normal.x, entry.normal.z);
     return { pos, yaw, pitch: 0 };
   }
 
   function alignCrossfadeOverlay(entry) {
-    if (!el.crossfadeImg || !entry || !camera || !renderer) return;
+    if (!el.crossfadeImg || !entry || !camera || !renderer) return false;
+    camera.updateMatrixWorld(true);
+    entry.holder.updateMatrixWorld(true);
+
+    const camFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    const toCenter = entry.center.clone().sub(camera.position);
+    if (toCenter.lengthSq() < 1e-6) {
+      el.crossfadeImg.style.opacity = "0";
+      return false;
+    }
+    toCenter.normalize();
+    if (camFwd.dot(toCenter) < 0.2) {
+      el.crossfadeImg.style.opacity = "0";
+      return false;
+    }
+
     const rect = renderer.domElement.getBoundingClientRect();
     const hw = entry.dims.wM / 2;
     const hh = entry.dims.hM / 2;
@@ -555,17 +764,20 @@
     let minY = Infinity;
     let maxY = -Infinity;
 
-    entry.mesh.updateMatrixWorld(true);
-    cornersLocal.forEach((pt) => {
-      const worldPt = pt.clone().applyMatrix4(entry.mesh.matrixWorld);
+    for (let i = 0; i < cornersLocal.length; i++) {
+      const worldPt = cornersLocal[i].clone().applyMatrix4(entry.mesh.matrixWorld);
       worldPt.project(camera);
+      if (worldPt.z < -1 || worldPt.z > 1) {
+        el.crossfadeImg.style.opacity = "0";
+        return false;
+      }
       const sx = (worldPt.x * 0.5 + 0.5) * rect.width;
       const sy = (-worldPt.y * 0.5 + 0.5) * rect.height;
       if (sx < minX) minX = sx;
       if (sx > maxX) maxX = sx;
       if (sy < minY) minY = sy;
       if (sy > maxY) maxY = sy;
-    });
+    }
 
     const w = Math.max(10, maxX - minX);
     const h = Math.max(10, maxY - minY);
@@ -573,6 +785,7 @@
     el.crossfadeImg.style.top = `${minY}px`;
     el.crossfadeImg.style.width = `${w}px`;
     el.crossfadeImg.style.height = `${h}px`;
+    return true;
   }
 
   function showPlaqueFor(entry) {
@@ -591,7 +804,9 @@
   function arriveAtPainting(entry) {
     camState = "focused";
     focusedEntry = entry;
+    setOverviewHintVisible(false);
     updateRoomBadge();
+    updateNavArrowsState();
     updateTextureWindow(entry.index);
     if (callbacks.onFocusArtwork) callbacks.onFocusArtwork(entry.art);
     if (tourActive && el.tourCounter) {
@@ -609,13 +824,16 @@
       preload.onload = () => {
         if (!isMounted || token !== crossfadeToken || camState !== "focused" || focusedEntry !== entry) return;
         syncEntryOrientationFromImage(entry, preload.naturalWidth, preload.naturalHeight);
-        alignCrossfadeOverlay(entry);
+        const aligned = alignCrossfadeOverlay(entry);
+        if (!aligned) return;
         el.crossfadeImg.src = hiresSrc;
         el.crossfadeImg.alt = entry.art.title || "";
         requestAnimationFrame(() => {
-          if (!isMounted || token !== crossfadeToken || camState !== "focused") return;
-          el.crossfadeImg.style.opacity = "1";
-          crossfadeVisible = true;
+          if (!isMounted || token !== crossfadeToken || camState !== "focused" || focusedEntry !== entry) return;
+          if (alignCrossfadeOverlay(entry)) {
+            el.crossfadeImg.style.opacity = "1";
+            crossfadeVisible = true;
+          }
         });
       };
       preload.src = hiresSrc;
@@ -625,8 +843,14 @@
       clearTimeout(tourPauseTimer);
       tourPauseTimer = setTimeout(() => {
         if (!tourActive || !isMounted) return;
-        const nextIdx = (entry.index + 1) % entries.length;
-        navigateToIndex(nextIdx, true);
+        if (entry.index + 1 >= entries.length) {
+          stopTour();
+          if (window.PlatenkoApp && window.PlatenkoApp.showToast) {
+            window.PlatenkoApp.showToast("Automatická prehliadka dokončená");
+          }
+          return;
+        }
+        navigateToIndex(entry.index + 1, true);
       }, TOUR_PAUSE_MS);
     }
   }
@@ -658,8 +882,37 @@
     }
   }
 
+  function buildTransitionPath(startPos, endPos) {
+    const startRoom = Math.floor(Math.abs(startPos.z) / ROOM_LENGTH);
+    const endRoom = Math.floor(Math.abs(endPos.z) / ROOM_LENGTH);
+    const pts = [startPos.clone()];
+    const isCrossRoom = startRoom !== endRoom;
+
+    if (isCrossRoom) {
+      if (Math.abs(startPos.x) > 0.75) {
+        pts.push(new THREE.Vector3(0, EYE_HEIGHT, startPos.z));
+      }
+      const midEnd = new THREE.Vector3(0, EYE_HEIGHT, endPos.z);
+      if (pts[pts.length - 1].distanceTo(midEnd) > 0.25) {
+        pts.push(midEnd);
+      }
+    }
+    if (pts[pts.length - 1].distanceTo(endPos) > 0.05) {
+      pts.push(endPos.clone());
+    }
+
+    if (pts.length < 2) {
+      return { curve: null, isCrossRoom: false };
+    }
+    return {
+      curve: new THREE.CatmullRomCurve3(pts, false, "centripetal", 0.5),
+      isCrossRoom,
+    };
+  }
+
   function navigateToEntry(entry, instant) {
     if (!entry || !THREE) return;
+    setOverviewHintVisible(false);
     exitCrossfadeThen(() => {
       if (!isMounted) return;
       updateTextureWindow(entry.index);
@@ -670,39 +923,58 @@
         camPos.copy(target.pos);
         camYaw = target.yaw;
         camPitch = target.pitch;
+        moveCurve = null;
+        moveIsCrossRoom = false;
+        moveTargetEntry = null;
         syncCameraTransform();
         arriveAtPainting(entry);
         return;
       }
 
+      const pathInfo = buildTransitionPath(camPos, target.pos);
       moveStartPos = camPos.clone();
       moveEndPos = target.pos;
+      moveCurve = pathInfo.curve;
+      moveIsCrossRoom = pathInfo.isCrossRoom;
       moveStartYaw = camYaw;
       moveEndYaw = target.yaw;
       moveStartPitch = camPitch;
       moveEndPitch = target.pitch;
-      const dist = moveStartPos.distanceTo(moveEndPos);
-      moveDuration = clamp(0.75 + dist * 0.22, 0.85, tourActive ? 2.4 : 1.75);
+      const pathLen = moveCurve ? moveCurve.getLength() : moveStartPos.distanceTo(moveEndPos);
+      moveDuration = clamp(0.75 + pathLen * 0.16, 0.85, tourActive ? 2.6 : 2.1);
       moveElapsed = 0;
       moveTargetEntry = entry;
       camState = "moving";
+      updateNavArrowsState();
     });
   }
 
   function navigateToIndex(idx, fromTour) {
     if (entries.length === 0) return;
     if (!fromTour && tourActive) stopTour();
-    const safeIdx = ((idx % entries.length) + entries.length) % entries.length;
+    const safeIdx = clamp(idx, 0, entries.length - 1);
     navigateToEntry(entries[safeIdx], false);
   }
 
   function stepArtwork(delta) {
     if (entries.length === 0) return;
     if (tourActive) stopTour();
-    const baseIdx = focusedEntry
-      ? focusedEntry.index
-      : (moveTargetEntry ? moveTargetEntry.index : findNearestEntryIndex());
-    navigateToIndex(baseIdx + delta, false);
+    const active = moveTargetEntry || focusedEntry;
+    if (active) {
+      const nextIdx = active.index + delta;
+      if (nextIdx < 0 || nextIdx >= entries.length) return;
+      navigateToEntry(entries[nextIdx], false);
+      return;
+    }
+
+    if (delta > 0) {
+      const targetIdx = camPos && camPos.z > -3.2 ? 0 : Math.min(entries.length - 1, findNearestEntryIndex());
+      navigateToEntry(entries[targetIdx], false);
+    } else if (delta < 0) {
+      if (camPos && camPos.z > -3.2) return;
+      const targetIdx = Math.max(0, findNearestEntryIndex() - 1);
+      navigateToEntry(entries[targetIdx], false);
+    }
   }
 
   function findNearestEntryIndex() {
@@ -723,13 +995,14 @@
   function startTour() {
     if (entries.length === 0) return;
     tourActive = true;
+    setOverviewHintVisible(false);
     if (el.root) el.root.classList.add("tour-active");
     if (el.topControls) el.topControls.classList.remove("mobile-open");
     if (el.mobileMenuBtn) el.mobileMenuBtn.setAttribute("aria-expanded", "false");
     if (el.tourPill) el.tourPill.hidden = false;
     hidePlaque();
 
-    const startIdx = focusedEntry ? (focusedEntry.index + 1) % entries.length : findNearestEntryIndex();
+    const startIdx = focusedEntry ? Math.min(entries.length - 1, focusedEntry.index + 1) : (camPos && camPos.z > -3.2 ? 0 : findNearestEntryIndex());
     if (el.tourCounter) el.tourCounter.textContent = `#${startIdx + 1}/${entries.length}`;
     navigateToEntry(entries[startIdx], false);
   }
@@ -765,13 +1038,33 @@
       moveElapsed += dt;
       const rawT = clamp(moveElapsed / moveDuration, 0, 1);
       const t = easeInOutCubic(rawT);
-      camPos.lerpVectors(moveStartPos, moveEndPos, t);
-      camYaw = lerpAngle(moveStartYaw, moveEndYaw, t);
+      if (moveCurve) {
+        moveCurve.getPoint(t, camPos);
+      } else {
+        camPos.lerpVectors(moveStartPos, moveEndPos, t);
+      }
+
+      if (moveIsCrossRoom && moveCurve) {
+        const tangent = moveCurve.getTangent(clamp(t, 0.02, 0.98));
+        const flatLenSq = tangent.x * tangent.x + tangent.z * tangent.z;
+        const travelYaw = flatLenSq > 1e-5 ? Math.atan2(-tangent.x, -tangent.z) : moveEndYaw;
+        if (rawT < 0.55) {
+          const legT = easeInOutCubic(clamp(rawT / 0.35, 0, 1));
+          camYaw = lerpAngle(moveStartYaw, travelYaw, legT);
+        } else {
+          const endT = easeInOutCubic(clamp((rawT - 0.55) / 0.45, 0, 1));
+          camYaw = lerpAngle(travelYaw, moveEndYaw, endT);
+        }
+      } else {
+        camYaw = lerpAngle(moveStartYaw, moveEndYaw, t);
+      }
       camPitch = moveStartPitch + (moveEndPitch - moveStartPitch) * t;
       syncCameraTransform();
       updateRoomBadge();
 
       if (rawT >= 1) {
+        moveCurve = null;
+        moveIsCrossRoom = false;
         if (waypointRing) waypointRing.visible = false;
         if (moveTargetEntry) {
           const arrived = moveTargetEntry;
@@ -780,24 +1073,38 @@
         } else {
           camState = "free";
           updateTextureWindow(findNearestEntryIndex());
+          updateRoomBadge();
+          updateNavArrowsState();
         }
       }
-    } else if (camState === "free" && keysDown.size > 0) {
-      const speed = 2.6 * dt;
-      const fwd = new THREE.Vector3(-Math.sin(camYaw), 0, -Math.cos(camYaw));
-      const right = new THREE.Vector3(Math.cos(camYaw), 0, -Math.sin(camYaw));
-      let moved = false;
+    } else if (camState === "free") {
+      let changed = false;
+      if (Math.abs(camPos.y - EYE_HEIGHT) > 0.001) {
+        camPos.y += (EYE_HEIGHT - camPos.y) * Math.min(1, dt * 8);
+        changed = true;
+      }
+      if (keysDown.size > 0) {
+        const speed = 2.6 * dt;
+        const fwd = new THREE.Vector3(-Math.sin(camYaw), 0, -Math.cos(camYaw));
+        const right = new THREE.Vector3(Math.cos(camYaw), 0, -Math.sin(camYaw));
+        let moved = false;
 
-      if (keysDown.has("KeyW") || keysDown.has("ArrowUp")) { camPos.addScaledVector(fwd, speed); moved = true; }
-      if (keysDown.has("KeyS") || keysDown.has("ArrowDown")) { camPos.addScaledVector(fwd, -speed); moved = true; }
-      if (keysDown.has("KeyA")) { camPos.addScaledVector(right, -speed); moved = true; }
-      if (keysDown.has("KeyD")) { camPos.addScaledVector(right, speed); moved = true; }
+        if (keysDown.has("KeyW") || keysDown.has("ArrowUp")) { camPos.addScaledVector(fwd, speed); moved = true; }
+        if (keysDown.has("KeyS") || keysDown.has("ArrowDown")) { camPos.addScaledVector(fwd, -speed); moved = true; }
+        if (keysDown.has("KeyA")) { camPos.addScaledVector(right, -speed); moved = true; }
+        if (keysDown.has("KeyD")) { camPos.addScaledVector(right, speed); moved = true; }
 
-      if (moved) {
-        clampWalkablePosition(camPos);
+        if (moved) {
+          setOverviewHintVisible(false);
+          clampWalkablePosition(camPos);
+          updateRoomBadge();
+          updateNavArrowsState();
+          updateTextureWindow(findNearestEntryIndex());
+          changed = true;
+        }
+      }
+      if (changed) {
         syncCameraTransform();
-        updateRoomBadge();
-        updateTextureWindow(findNearestEntryIndex());
       }
     }
 
@@ -825,6 +1132,7 @@
     pointerMovedPx += Math.hypot(dx, dy);
 
     if (pointerMovedPx > 6) {
+      setOverviewHintVisible(false);
       if (camState === "focused" || camState === "moving") {
         // Glitch-free exit before letting user rotate away
         exitCrossfadeThen(() => {
@@ -832,7 +1140,11 @@
           camState = "free";
           focusedEntry = null;
           moveTargetEntry = null;
-          camPos.y = EYE_HEIGHT;
+          moveCurve = null;
+          moveIsCrossRoom = false;
+          updateRoomBadge();
+          updateNavArrowsState();
+          if (callbacks.onLeaveArtwork) callbacks.onLeaveArtwork();
         });
         return;
       }
@@ -872,23 +1184,30 @@
       if (floorHits.length > 0 && floorHits[0].distance < 16) {
         const pt = floorHits[0].point.clone();
         clampWalkablePosition(pt);
+        setOverviewHintVisible(false);
         exitCrossfadeThen(() => {
           if (!isMounted) return;
           if (waypointRing) {
             waypointRing.position.set(pt.x, 0.015, pt.z);
             waypointRing.visible = true;
           }
+          const pathInfo = buildTransitionPath(camPos, pt);
           moveStartPos = camPos.clone();
           moveEndPos = pt;
+          moveCurve = pathInfo.curve;
+          moveIsCrossRoom = pathInfo.isCrossRoom;
           moveStartYaw = camYaw;
           moveEndYaw = camYaw;
           moveStartPitch = camPitch;
           moveEndPitch = 0;
-          moveDuration = clamp(0.6 + moveStartPos.distanceTo(moveEndPos) * 0.25, 0.6, 1.5);
+          const pathLen = moveCurve ? moveCurve.getLength() : moveStartPos.distanceTo(moveEndPos);
+          moveDuration = clamp(0.6 + pathLen * 0.22, 0.6, 1.6);
           moveElapsed = 0;
           moveTargetEntry = null;
           focusedEntry = null;
           camState = "moving";
+          updateRoomBadge();
+          updateNavArrowsState();
           if (callbacks.onLeaveArtwork) callbacks.onLeaveArtwork();
         });
       }
@@ -916,7 +1235,24 @@
     if (e.key === "ArrowRight") { e.preventDefault(); stepArtwork(1); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); stepArtwork(-1); }
     else if (e.key === "Escape") { close(); }
-    else keysDown.add(e.code);
+    else {
+      const isMoveKey = e.code === "KeyW" || e.code === "KeyS" || e.code === "KeyA" || e.code === "KeyD" || e.code === "ArrowUp" || e.code === "ArrowDown";
+      keysDown.add(e.code);
+      if (isMoveKey) {
+        setOverviewHintVisible(false);
+        if (camState === "focused") {
+          exitCrossfadeThen(() => {
+            if (!isMounted) return;
+            camState = "free";
+            focusedEntry = null;
+            moveTargetEntry = null;
+            updateRoomBadge();
+            updateNavArrowsState();
+            if (callbacks.onLeaveArtwork) callbacks.onLeaveArtwork();
+          });
+        }
+      }
+    }
   }
 
   function onKeyUp(e) {
@@ -967,9 +1303,14 @@
       scene.fog = new THREE.Fog(0xF5F5F2, 18, 42);
 
       camera = new THREE.PerspectiveCamera(56, window.innerWidth / window.innerHeight, 0.1, 60);
-      camPos = new THREE.Vector3(0, EYE_HEIGHT, -1.6);
+      camPos = new THREE.Vector3(0, EYE_HEIGHT, -1.1);
       camYaw = 0;
       camPitch = -0.02;
+      camState = "free";
+      focusedEntry = null;
+      moveTargetEntry = null;
+      moveCurve = null;
+      moveIsCrossRoom = false;
       syncCameraTransform();
 
       buildArchitecture();
@@ -988,13 +1329,17 @@
       animRafId = requestAnimationFrame(animate);
 
       const targetId = opts && opts.initialArtworkId;
-      const targetEntry = targetId ? entries.find((e) => e.art.id === targetId) : entries[0];
+      const targetEntry = targetId ? entries.find((e) => e.art.id === targetId) : null;
       if (targetEntry) {
+        setOverviewHintVisible(false);
         updateTextureWindow(targetEntry.index);
         navigateToEntry(targetEntry, true);
       } else {
+        hidePlaque();
         updateTextureWindow(0);
         updateRoomBadge();
+        updateNavArrowsState();
+        setOverviewHintVisible(entries.length > 0);
       }
     } catch (err) {
       console.error("3D Gallery init failed:", err);
@@ -1054,8 +1399,12 @@
     raycastMeshes = [];
     floorMesh = null;
     waypointRing = null;
+    sharedFrameOuterMat = null;
+    sharedFrameRecessMat = null;
     focusedEntry = null;
     moveTargetEntry = null;
+    moveCurve = null;
+    moveIsCrossRoom = false;
 
     if (renderer) {
       try { renderer.dispose(); } catch {}
@@ -1070,6 +1419,7 @@
     }
     if (el.canvasHost) el.canvasHost.innerHTML = "";
     if (el.plaque) el.plaque.hidden = true;
+    if (el.overviewHint) el.overviewHint.hidden = true;
     if (el.root) el.root.hidden = true;
 
     if (document.fullscreenElement && document.exitFullscreen) {
