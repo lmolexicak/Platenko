@@ -420,6 +420,36 @@
     });
   }
 
+  function syncEntryOrientationFromImage(entry, natW, natH) {
+    if (!entry || !THREE || !(natW > 0 && natH > 0)) return false;
+    const updatedDims = parseDimensionsCm(entry.art, natW, natH);
+    if (updatedDims.wCm === entry.dims.wCm && updatedDims.hCm === entry.dims.hCm) return false;
+    entry.dims = updatedDims;
+    const newGeo = track(new THREE.BoxGeometry(updatedDims.wM, updatedDims.hM, updatedDims.dM));
+    entry.mesh.geometry.dispose();
+    entry.mesh.geometry = newGeo;
+    entry.mesh.position.z = updatedDims.dM / 2;
+    const newShGeo = track(new THREE.PlaneGeometry(updatedDims.wM + 0.08, updatedDims.hM + 0.08));
+    entry.shadowMesh.geometry.dispose();
+    entry.shadowMesh.geometry = newShGeo;
+
+    if (camState === "focused" && focusedEntry === entry && renderer && camera) {
+      const target = computeViewingPose(entry);
+      camPos.copy(target.pos);
+      camYaw = target.yaw;
+      camPitch = target.pitch;
+      syncCameraTransform();
+      showPlaqueFor(entry);
+      alignCrossfadeOverlay(entry);
+    } else if (camState === "moving" && moveTargetEntry === entry) {
+      const target = computeViewingPose(entry);
+      moveEndPos = target.pos;
+      moveEndYaw = target.yaw;
+      moveEndPitch = target.pitch;
+    }
+    return true;
+  }
+
   // ---- Lazy Rolling Texture Window (WebGL Memory Hygiene for 91 Paintings) ----
   function updateTextureWindow(centerIdx) {
     if (!THREE || entries.length === 0) return;
@@ -449,17 +479,7 @@
 
               // Auto-adjust default 50x70 orientation if photo is landscape
               if (tex.image && tex.image.naturalWidth > 0) {
-                const updatedDims = parseDimensionsCm(entry.art, tex.image.naturalWidth, tex.image.naturalHeight);
-                if (updatedDims.wCm !== entry.dims.wCm || updatedDims.hCm !== entry.dims.hCm) {
-                  entry.dims = updatedDims;
-                  const newGeo = track(new THREE.BoxGeometry(updatedDims.wM, updatedDims.hM, updatedDims.dM));
-                  entry.mesh.geometry.dispose();
-                  entry.mesh.geometry = newGeo;
-                  entry.mesh.position.z = updatedDims.dM / 2;
-                  const newShGeo = track(new THREE.PlaneGeometry(updatedDims.wM + 0.08, updatedDims.hM + 0.08));
-                  entry.shadowMesh.geometry.dispose();
-                  entry.shadowMesh.geometry = newShGeo;
-                }
+                syncEntryOrientationFromImage(entry, tex.image.naturalWidth, tex.image.naturalHeight);
               }
             },
             undefined,
@@ -588,6 +608,7 @@
       preload.crossOrigin = "anonymous";
       preload.onload = () => {
         if (!isMounted || token !== crossfadeToken || camState !== "focused" || focusedEntry !== entry) return;
+        syncEntryOrientationFromImage(entry, preload.naturalWidth, preload.naturalHeight);
         alignCrossfadeOverlay(entry);
         el.crossfadeImg.src = hiresSrc;
         el.crossfadeImg.alt = entry.art.title || "";
