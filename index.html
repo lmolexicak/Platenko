@@ -17,7 +17,7 @@
       }
     }
   </script>
-  <link rel="stylesheet" href="styles.css?v=20261125e">
+  <link rel="stylesheet" href="styles.css?v=20261125f">
 </head>
 <body>
 
@@ -60,11 +60,13 @@
       <p>Tekutý akryl, holandský pour, jemné prechody airbrushom a detailné textúry od Plátenko.</p>
       
       <!-- Filter Bar -->
-      <div class="filter-bar">
+      <div class="filter-bar" id="filterBar">
         <button class="filter-btn active" data-filter="all">Všetky maľby</button>
-        <button class="filter-btn" data-filter="available">Dostupné</button>
-        <button class="filter-btn" data-filter="reserved">Rezervované</button>
-        <button class="filter-btn" data-filter="sold">Predané</button>
+        <span id="statusFilterGroup" style="display: contents;">
+          <button class="filter-btn" data-filter="status:available">Dostupné</button>
+          <button class="filter-btn" data-filter="status:reserved">Rezervované</button>
+          <button class="filter-btn" data-filter="status:sold">Predané</button>
+        </span>
         <span class="filter-divider" aria-hidden="true"></span>
         <button class="filter-btn" data-filter="size-small">Malé (do 60 cm)</button>
         <button class="filter-btn" data-filter="size-medium">Stredné (60–100 cm)</button>
@@ -584,10 +586,10 @@
   </footer>
 
   <!-- Scripts -->
-  <script src="artworks.js?v=20261125d"></script>
-  <script src="detail-modal.js?v=20261125d"></script>
-  <script src="ar-viewer.js?v=20261125d"></script>
-  <script src="gallery-3d.js?v=20261125d"></script>
-  <script src="app.js?v=20261125d"></script>
+  <script src="artworks.js?v=20261125f"></script>
+  <script src="detail-modal.js?v=20261125f"></script>
+  <script src="ar-viewer.js?v=20261125f"></script>
+  <script src="gallery-3d.js?v=20261125f"></script>
+  <script src="app.js?v=20261125f"></script>
 </body>
 </html>

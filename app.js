@@ -4,7 +4,8 @@
  */
 document.addEventListener("DOMContentLoaded", () => {
   const galleryGrid = document.getElementById("galleryGrid");
-  const filterButtons = document.querySelectorAll(".filter-btn");
+  const filterBar = document.getElementById("filterBar");
+  const statusFilterGroup = document.getElementById("statusFilterGroup");
   const themeToggleBtn = document.getElementById("themeToggle");
   const loadMoreBtn = document.getElementById("loadMoreBtn");
   const loadMoreWrap = document.getElementById("loadMoreWrap");
@@ -33,6 +34,11 @@ document.addEventListener("DOMContentLoaded", () => {
   let _isAuthenticated = false;
   let _authUsername = null;
   let _masterArtworksList = null;
+  let _statusLookups = [
+    { code: "Available", label: "Dostupné", color: "green", showInFilter: true },
+    { code: "Reserved", label: "Rezervované", color: "yellow", showInFilter: true },
+    { code: "Sold", label: "Predané", color: "gray", showInFilter: true },
+  ];
 
   function toThumbUrl(url) {
     if (!url || typeof url !== "string") return url;
@@ -311,6 +317,20 @@ document.addEventListener("DOMContentLoaded", () => {
     return _masterArtworksList || [];
   }
 
+  function renderDynamicStatusFilters() {
+    if (!statusFilterGroup) return;
+    statusFilterGroup.innerHTML = "";
+    _statusLookups
+      .filter((s) => s.showInFilter !== false)
+      .forEach((s) => {
+        const btn = document.createElement("button");
+        btn.className = "filter-btn";
+        btn.dataset.filter = `status:${String(s.code).toLowerCase()}`;
+        btn.textContent = s.label;
+        statusFilterGroup.appendChild(btn);
+      });
+  }
+
   async function loadArtworksFromAPI() {
     if (galleryGrid) {
       galleryGrid.innerHTML = `
@@ -320,17 +340,20 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>`;
     }
 
-    try {
-      const resp = await fetch("/api/artworks");
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
-      const data = await resp.json();
-      if (Array.isArray(data) && data.length > 0) {
-        _masterArtworksList = data;
-      } else {
-        throw new Error("Empty API response");
-      }
-    } catch (err) {
-      console.warn("API load failed, falling back to artworksData:", err);
+    const [artRes, lookupRes] = await Promise.allSettled([
+      fetch("/api/artworks").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
+      fetch("/api/lookups").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
+    ]);
+
+    if (lookupRes.status === "fulfilled" && lookupRes.value && Array.isArray(lookupRes.value.statuses)) {
+      _statusLookups = lookupRes.value.statuses;
+      renderDynamicStatusFilters();
+    }
+
+    if (artRes.status === "fulfilled" && Array.isArray(artRes.value) && artRes.value.length > 0) {
+      _masterArtworksList = artRes.value;
+    } else {
+      console.warn("API load failed, falling back to artworksData");
       _masterArtworksList = (typeof artworksData !== "undefined" && Array.isArray(artworksData))
         ? artworksData : [];
     }
@@ -361,14 +384,25 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function normalizeStatus(status) {
-    const s = (status || "").trim().toLowerCase();
+    const raw = (status || "Available").trim();
+    const s = raw.toLowerCase();
+    const matched = _statusLookups.find(
+      (item) => (item.code || "").toLowerCase() === s || (item.label || "").toLowerCase() === s
+    );
+    if (matched) {
+      return {
+        key: String(matched.code).toLowerCase(),
+        label: matched.label,
+        badgeClass: `badge-color-${matched.color || "blue"}`,
+      };
+    }
     if (s === "reserved" || s === "rezervovane" || s === "rezervované") {
-      return { key: "reserved", label: "Rezervované", badgeClass: "badge-reserved" };
+      return { key: "reserved", label: "Rezervované", badgeClass: "badge-color-yellow" };
     }
     if (s === "sold" || s === "predane" || s === "predané") {
-      return { key: "sold", label: "Predané", badgeClass: "badge-sold" };
+      return { key: "sold", label: "Predané", badgeClass: "badge-color-gray" };
     }
-    return { key: "available", label: "Dostupné", badgeClass: "badge-available" };
+    return { key: s || "available", label: raw || "Dostupné", badgeClass: "badge-color-green" };
   }
 
   function getMaxDimensionCm(dimensionsStr) {
@@ -387,6 +421,9 @@ document.addEventListener("DOMContentLoaded", () => {
     currentFilteredList = all.filter((item) => {
       if (filter === "all") return true;
       const st = normalizeStatus(item.status).key;
+      if (filter.startsWith("status:")) {
+        return st === filter.substring("status:".length);
+      }
       if (filter === "available" || filter === "reserved" || filter === "sold") {
         return st === filter;
       }
@@ -468,13 +505,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (loadMoreBtn) loadMoreBtn.addEventListener("click", renderNextBatch);
 
-  filterButtons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      filterButtons.forEach((b) => b.classList.remove("active"));
+  if (filterBar) {
+    filterBar.addEventListener("click", (e) => {
+      const btn = e.target.closest(".filter-btn");
+      if (!btn) return;
+      filterBar.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       applyFilter(btn.dataset.filter);
     });
-  });
+  }
 
   // 5. Detail Modal, AR & 3D Gallery Delegation
   function openArtworkModal(art) {

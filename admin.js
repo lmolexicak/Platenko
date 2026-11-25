@@ -17,6 +17,35 @@
   let pendingRawDataUrl = null;
   let currentRawUrl = "";
 
+  // Dynamic D1 Lookups (Číselníky)
+  let lookups = {
+    techniques: [
+      { code: "Pouring", label: "Pouring" },
+      { code: "Airbrush", label: "Airbrush" },
+      { code: "Mixed", label: "Mixed" },
+      { code: "Brush", label: "Brush" },
+    ],
+    statuses: [
+      { code: "Available", label: "Dostupné", color: "green", showInFilter: true },
+      { code: "Reserved", label: "Rezervované", color: "yellow", showInFilter: true },
+      { code: "Sold", label: "Predané", color: "gray", showInFilter: true },
+    ],
+    mediums: [
+      { code: "Akryl na plátne", label: "Akryl na plátne" },
+      { code: "Akryl a zlatá fólia na plátne", label: "Akryl a zlatá fólia na plátne" },
+    ],
+    dimensionPresets: [
+      { code: "30x40", label: "30×40", meta: { w: 30, h: 40 } },
+      { code: "50x50", label: "50×50", meta: { w: 50, h: 50 } },
+      { code: "50x70", label: "50×70", meta: { w: 50, h: 70 } },
+      { code: "70x50", label: "70×50", meta: { w: 70, h: 50 } },
+      { code: "60x80", label: "60×80", meta: { w: 60, h: 80 } },
+      { code: "80x100", label: "80×100", meta: { w: 80, h: 100 } },
+      { code: "100x120", label: "100×120", meta: { w: 100, h: 120 } },
+    ],
+  };
+  let activeLookupCategory = "technique";
+
   const dom = {};
   function cacheDom() {
     dom.authOverlay = document.getElementById("adminAuthOverlay");
@@ -28,7 +57,22 @@
 
     dom.main = document.getElementById("adminMain");
     dom.logoutBtn = document.getElementById("adminLogoutBtn");
+    dom.lookupsBtn = document.getElementById("adminLookupsBtn");
     dom.sorterLink = document.getElementById("adminSorterLink");
+
+    dom.lookupsModal = document.getElementById("lookupsModal");
+    dom.lookupsCloseBtn = document.getElementById("lookupsCloseBtn");
+    dom.lookupTabBtns = Array.from(document.querySelectorAll(".lookup-tab-btn"));
+    dom.lookupAddForm = document.getElementById("lookupAddForm");
+    dom.lookupNewLabel = document.getElementById("lookupNewLabel");
+    dom.lookupNewDimsWrap = document.getElementById("lookupNewDimsWrap");
+    dom.lookupNewW = document.getElementById("lookupNewW");
+    dom.lookupNewH = document.getElementById("lookupNewH");
+    dom.lookupNewColor = document.getElementById("lookupNewColor");
+    dom.lookupNewFilterWrap = document.getElementById("lookupNewFilterWrap");
+    dom.lookupNewShowFilter = document.getElementById("lookupNewShowFilter");
+    dom.lookupStatusMsg = document.getElementById("lookupStatusMsg");
+    dom.lookupsList = document.getElementById("lookupsList");
 
     dom.formHeading = document.getElementById("admFormHeading");
     dom.resetFormBtn = document.getElementById("admResetFormBtn");
@@ -53,6 +97,7 @@
     dom.width = document.getElementById("admWidth");
     dom.height = document.getElementById("admHeight");
     dom.depth = document.getElementById("admDepth");
+    dom.presetsWrap = document.getElementById("admPresets");
     dom.presets = Array.from(document.querySelectorAll("#admPresets .preset-chip"));
     dom.sofaPreview = document.getElementById("admSofaPreview");
     dom.previewPaint = document.getElementById("admPreviewPaint");
@@ -147,6 +192,7 @@
   function showAuthGate(errorText = "") {
     if (dom.main) dom.main.style.display = "none";
     if (dom.logoutBtn) dom.logoutBtn.style.display = "none";
+    if (dom.lookupsBtn) dom.lookupsBtn.style.display = "none";
     if (dom.sorterLink) dom.sorterLink.style.display = "none";
     if (dom.authOverlay) dom.authOverlay.style.display = "flex";
     if (dom.authError) {
@@ -166,7 +212,247 @@
     if (dom.authOverlay) dom.authOverlay.style.display = "none";
     if (dom.main) dom.main.style.display = "block";
     if (dom.logoutBtn) dom.logoutBtn.style.display = "inline-flex";
+    if (dom.lookupsBtn) dom.lookupsBtn.style.display = "inline-flex";
     if (dom.sorterLink) dom.sorterLink.style.display = "inline-flex";
+  }
+
+  // ---- Dynamic Lookups Population & CRUD Modal ----
+  function populateSelectOptions(selectEl, items, desiredValue) {
+    if (!selectEl) return;
+    const prevVal = desiredValue !== undefined ? desiredValue : selectEl.value;
+    selectEl.innerHTML = "";
+    const seen = new Set();
+    (items || []).forEach((item) => {
+      const opt = document.createElement("option");
+      opt.value = item.code;
+      opt.textContent = item.label;
+      selectEl.appendChild(opt);
+      seen.add(item.code);
+    });
+    if (prevVal && !seen.has(prevVal)) {
+      const fallback = document.createElement("option");
+      fallback.value = prevVal;
+      fallback.textContent = prevVal;
+      selectEl.appendChild(fallback);
+    }
+    if (prevVal) selectEl.value = prevVal;
+  }
+
+  function renderLookupsIntoForm() {
+    populateSelectOptions(dom.technique, lookups.techniques);
+    populateSelectOptions(dom.status, lookups.statuses);
+    populateSelectOptions(dom.medium, lookups.mediums);
+
+    if (dom.presetsWrap) {
+      dom.presetsWrap.innerHTML = "";
+      (lookups.dimensionPresets || []).forEach((p) => {
+        const w = (p.meta && p.meta.w) || 50;
+        const h = (p.meta && p.meta.h) || 70;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "preset-chip";
+        btn.textContent = p.label || `${w}×${h}`;
+        btn.addEventListener("click", () => {
+          if (dom.width) dom.width.value = w;
+          if (dom.height) dom.height.value = h;
+          updateSofaPreview();
+        });
+        dom.presetsWrap.appendChild(btn);
+      });
+    }
+  }
+
+  async function loadLookups() {
+    try {
+      const resp = await fetch("/api/lookups");
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      if (data && Array.isArray(data.techniques)) {
+        lookups = {
+          techniques: data.techniques || [],
+          statuses: data.statuses || [],
+          mediums: data.mediums || [],
+          dimensionPresets: data.dimensionPresets || [],
+        };
+        renderLookupsIntoForm();
+        if (artworks.length > 0) renderInventory();
+        if (dom.lookupsModal && dom.lookupsModal.classList.contains("open")) {
+          renderLookupsManager();
+        }
+      }
+    } catch (err) {
+      console.warn("Lookups load fallback:", err);
+      renderLookupsIntoForm();
+    }
+  }
+
+  function showLookupMsg(text, isErr = false) {
+    if (!dom.lookupStatusMsg) return;
+    dom.lookupStatusMsg.textContent = text;
+    dom.lookupStatusMsg.className = isErr ? "settings-error" : "settings-success";
+    dom.lookupStatusMsg.style.display = "block";
+    if (!isErr) {
+      setTimeout(() => {
+        if (dom.lookupStatusMsg.textContent === text) dom.lookupStatusMsg.style.display = "none";
+      }, 3000);
+    }
+  }
+
+  function getCategoryItems(cat) {
+    if (cat === "technique") return lookups.techniques || [];
+    if (cat === "status") return lookups.statuses || [];
+    if (cat === "medium") return lookups.mediums || [];
+    return lookups.dimensionPresets || [];
+  }
+
+  function renderLookupsManager() {
+    if (!dom.lookupsList) return;
+    const isDims = activeLookupCategory === "dimension_preset";
+    const isStatus = activeLookupCategory === "status";
+
+    if (dom.lookupNewLabel) dom.lookupNewLabel.style.display = isDims ? "none" : "block";
+    if (dom.lookupNewDimsWrap) dom.lookupNewDimsWrap.style.display = isDims ? "inline-flex" : "none";
+    if (dom.lookupNewColor) dom.lookupNewColor.style.display = isStatus ? "block" : "none";
+    if (dom.lookupNewFilterWrap) dom.lookupNewFilterWrap.style.display = isStatus ? "inline-flex" : "none";
+
+    dom.lookupTabBtns.forEach((b) => b.classList.toggle("active", b.dataset.category === activeLookupCategory));
+
+    const items = getCategoryItems(activeLookupCategory);
+    dom.lookupsList.innerHTML = "";
+    if (items.length === 0) {
+      dom.lookupsList.innerHTML = `<p style="color:var(--text-muted);text-align:center;padding:20px;">Žiadne položky.</p>`;
+      return;
+    }
+
+    items.forEach((item, idx) => {
+      const row = document.createElement("div");
+      row.className = "lookup-row";
+
+      if (isDims) {
+        const wVal = (item.meta && item.meta.w) || 50;
+        const hVal = (item.meta && item.meta.h) || 70;
+        row.innerHTML = `
+          <input type="number" class="edit-input lk-w" value="${wVal}" min="5" max="400" style="width:82px;">
+          <span>×</span>
+          <input type="number" class="edit-input lk-h" value="${hVal}" min="5" max="400" style="width:82px;">
+          <span style="font-size:0.8rem;color:var(--text-muted);flex:1;">cm</span>
+        `;
+      } else {
+        row.innerHTML = `
+          <input type="text" class="edit-input lk-label" value="${(item.label || "").replace(/"/g, "&quot;")}" style="flex:1;min-width:130px;">
+        `;
+        if (isStatus) {
+          const colors = [
+            ["green", "Zelená"], ["yellow", "Žltá"], ["gray", "Sivá"],
+            ["blue", "Modrá"], ["purple", "Fialová"], ["red", "Červená"],
+          ];
+          const sel = document.createElement("select");
+          sel.className = "edit-select lk-color";
+          sel.style.width = "auto";
+          colors.forEach(([val, lbl]) => {
+            const o = document.createElement("option");
+            o.value = val;
+            o.textContent = lbl;
+            if ((item.color || "blue") === val) o.selected = true;
+            sel.appendChild(o);
+          });
+          row.appendChild(sel);
+
+          const chkLbl = document.createElement("label");
+          chkLbl.style.cssText = "display:inline-flex;align-items:center;gap:4px;font-size:0.78rem;white-space:nowrap;";
+          chkLbl.innerHTML = `<input type="checkbox" class="lk-filter" ${item.showInFilter !== false ? "checked" : ""}> Filter`;
+          row.appendChild(chkLbl);
+        }
+      }
+
+      const actions = document.createElement("div");
+      actions.style.cssText = "display:flex;gap:4px;align-items:center;";
+      actions.innerHTML = `
+        <button type="button" class="adm-icon-btn lk-up" title="Vyššie" ${idx === 0 ? "disabled" : ""}>↑</button>
+        <button type="button" class="adm-icon-btn lk-down" title="Nižšie" ${idx === items.length - 1 ? "disabled" : ""}>↓</button>
+        <button type="button" class="adm-icon-btn lk-save" title="Uložiť zmenu">💾</button>
+        <button type="button" class="adm-icon-btn lk-del" title="Vymazať" style="color:#ef4444;">🗑️</button>
+      `;
+      row.appendChild(actions);
+
+      actions.querySelector(".lk-up").addEventListener("click", () => reorderLookup(activeLookupCategory, idx, -1));
+      actions.querySelector(".lk-down").addEventListener("click", () => reorderLookup(activeLookupCategory, idx, 1));
+      actions.querySelector(".lk-save").addEventListener("click", async () => {
+        const payload = {};
+        if (isDims) {
+          payload.w = parseFloat(row.querySelector(".lk-w").value);
+          payload.h = parseFloat(row.querySelector(".lk-h").value);
+        } else {
+          payload.label = row.querySelector(".lk-label").value.trim();
+          if (isStatus) {
+            payload.color = row.querySelector(".lk-color").value;
+            payload.showInFilter = row.querySelector(".lk-filter").checked;
+          }
+        }
+        try {
+          const resp = await fetch(`/api/lookups/${item.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || ("HTTP " + resp.status));
+          await loadLookups();
+          if (activeLookupCategory === "technique" || activeLookupCategory === "medium") {
+            await loadArtworks();
+          }
+          showLookupMsg("✓ Položka aktualizovaná.");
+        } catch (err) {
+          showLookupMsg("Chyba: " + err.message, true);
+        }
+      });
+
+      actions.querySelector(".lk-del").addEventListener("click", async () => {
+        if (!confirm(`Odstrániť položku „${item.label}“ z číselníka? Existujúcim obrazom hodnota zostane.`)) return;
+        try {
+          const resp = await fetch(`/api/lookups/${item.id}`, { method: "DELETE" });
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+          await loadLookups();
+          showLookupMsg("✓ Položka odstránená z číselníka.");
+        } catch (err) {
+          showLookupMsg("Chyba mazania: " + err.message, true);
+        }
+      });
+
+      dom.lookupsList.appendChild(row);
+    });
+  }
+
+  async function reorderLookup(cat, idx, delta) {
+    const items = [...getCategoryItems(cat)];
+    const target = idx + delta;
+    if (target < 0 || target >= items.length) return;
+    const [moved] = items.splice(idx, 1);
+    items.splice(target, 0, moved);
+    try {
+      const resp = await fetch("/api/lookups/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: cat, orderedIds: items.map((x) => x.id) }),
+      });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      await loadLookups();
+    } catch (err) {
+      showLookupMsg("Chyba poradia: " + err.message, true);
+    }
+  }
+
+  function openLookupsModal() {
+    if (!dom.lookupsModal) return;
+    renderLookupsManager();
+    if (dom.lookupStatusMsg) dom.lookupStatusMsg.style.display = "none";
+    dom.lookupsModal.classList.add("open");
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeLookupsModal() {
+    if (!dom.lookupsModal) return;
+    dom.lookupsModal.classList.remove("open");
+    document.body.style.overflow = "";
   }
 
   // ---- Miniature 220 cm Sofa Scale Preview ----
@@ -289,9 +575,17 @@
     if (dom.width) dom.width.value = "50";
     if (dom.height) dom.height.value = "70";
     if (dom.depth) dom.depth.value = "4";
-    if (dom.medium) dom.medium.value = "Akryl na plátne";
-    if (dom.technique) dom.technique.value = "Mixed";
-    if (dom.status) dom.status.value = "Available";
+    const pickSafeOption = (sel, preferred) => {
+      if (!sel) return;
+      if (Array.from(sel.options).some((o) => o.value === preferred)) {
+        sel.value = preferred;
+      } else if (sel.options.length > 0) {
+        sel.selectedIndex = 0;
+      }
+    };
+    pickSafeOption(dom.medium, "Akryl na plátne");
+    pickSafeOption(dom.technique, "Mixed");
+    pickSafeOption(dom.status, "Available");
     if (dom.date) dom.date.value = new Date().toISOString().slice(0, 10);
     if (dom.instaTestLink) dom.instaTestLink.href = "https://www.instagram.com/platenko.akryl";
     if (dom.statusMsg) dom.statusMsg.style.display = "none";
@@ -315,9 +609,9 @@
     if (dom.formHeading) dom.formHeading.textContent = `✏️ Upraviť: ${art.title}`;
     dom.title.value = art.title || "";
     dom.date.value = art.date || "";
-    dom.technique.value = art.technique || "Mixed";
-    dom.status.value = art.status || "Available";
-    dom.medium.value = art.medium || "Akryl na plátne";
+    populateSelectOptions(dom.technique, lookups.techniques, art.technique || "Mixed");
+    populateSelectOptions(dom.status, lookups.statuses, art.status || "Available");
+    populateSelectOptions(dom.medium, lookups.mediums, art.medium || "Akryl na plátne");
     dom.width.value = art.widthCm || 50;
     dom.height.value = art.heightCm || 70;
     dom.depth.value = art.depthCm || 4;
@@ -456,11 +750,7 @@
           <span style="font-size:0.78rem;color:var(--text-muted);">${dimsLabel} · ${art.date || art.year || ""} · ${art.photoCount || (art.detailImages ? art.detailImages.length : 1)} fotiek</span>
         </td>
         <td>
-          <select class="status-select adm-row-status">
-            <option value="Available" ${art.status === "Available" ? "selected" : ""}>Dostupné</option>
-            <option value="Reserved" ${art.status === "Reserved" ? "selected" : ""}>Rezervované</option>
-            <option value="Sold" ${art.status === "Sold" ? "selected" : ""}>Predané</option>
-          </select>
+          <select class="status-select adm-row-status"></select>
         </td>
         <td style="text-align:right;white-space:nowrap;">
           <button type="button" class="adm-icon-btn adm-up-btn" title="Posunúť vyššie" ${isSearching ? "disabled" : ""}>↑</button>
@@ -471,7 +761,9 @@
         </td>
       `;
 
-      tr.querySelector(".adm-row-status").addEventListener("change", async (e) => {
+      const rowStatusSel = tr.querySelector(".adm-row-status");
+      populateSelectOptions(rowStatusSel, lookups.statuses, art.status || "Available");
+      rowStatusSel.addEventListener("change", async (e) => {
         const newStatus = e.target.value;
         art.status = newStatus;
         await quickUpdateArtwork(art.id, { status: newStatus });
@@ -738,7 +1030,7 @@
           dom.loginPass.value = "";
           hideAuthGate();
           resetForm();
-          loadArtworks();
+          loadLookups().then(() => loadArtworks());
         } catch (err) {
           if (dom.authError) {
             dom.authError.textContent = err.message || "Chyba prihlásenia.";
@@ -840,12 +1132,58 @@
       });
     }
 
+    if (dom.lookupsBtn) dom.lookupsBtn.addEventListener("click", openLookupsModal);
+    if (dom.lookupsCloseBtn) dom.lookupsCloseBtn.addEventListener("click", closeLookupsModal);
+    if (dom.lookupsModal) {
+      dom.lookupsModal.addEventListener("click", (e) => {
+        if (e.target === dom.lookupsModal) closeLookupsModal();
+      });
+    }
+    dom.lookupTabBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeLookupCategory = btn.dataset.category;
+        renderLookupsManager();
+      });
+    });
+    if (dom.lookupAddForm) {
+      dom.lookupAddForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const payload = { category: activeLookupCategory };
+        if (activeLookupCategory === "dimension_preset") {
+          payload.w = parseFloat(dom.lookupNewW.value);
+          payload.h = parseFloat(dom.lookupNewH.value);
+        } else {
+          payload.label = dom.lookupNewLabel.value.trim();
+          if (activeLookupCategory === "status") {
+            payload.color = dom.lookupNewColor.value;
+            payload.showInFilter = dom.lookupNewShowFilter.checked;
+          }
+        }
+        try {
+          const resp = await fetch("/api/lookups", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || ("HTTP " + resp.status));
+          if (dom.lookupNewLabel) dom.lookupNewLabel.value = "";
+          if (dom.lookupNewW) dom.lookupNewW.value = "";
+          if (dom.lookupNewH) dom.lookupNewH.value = "";
+          await loadLookups();
+          showLookupMsg("✓ Nová položka pridaná.");
+        } catch (err) {
+          showLookupMsg("Chyba pridania: " + err.message, true);
+        }
+      });
+    }
+
     try {
       const resp = await fetch("/api/auth/me");
       const data = await resp.json();
       if (data && data.authenticated) {
         hideAuthGate();
         resetForm();
+        await loadLookups();
         loadArtworks();
       } else {
         showAuthGate();

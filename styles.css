@@ -3043,6 +3043,113 @@ footer {
   gap: 4px;
 }
 
+/* Dynamic Lookup Badge Colors + Lookups Manager Modal */
+.badge-color-green {
+  background: var(--badge-available-bg);
+  color: var(--badge-available-text);
+  border: 1px solid rgba(22, 101, 52, 0.18);
+}
+
+.badge-color-yellow {
+  background: var(--badge-reserved-bg);
+  color: var(--badge-reserved-text);
+  border: 1px solid rgba(133, 77, 14, 0.22);
+}
+
+.badge-color-gray {
+  background: var(--badge-sold-bg);
+  color: var(--badge-sold-text);
+  border: 1px solid rgba(82, 82, 91, 0.2);
+}
+
+.badge-color-blue {
+  background: #EFF6FF;
+  color: #1D4ED8;
+  border: 1px solid rgba(29, 78, 216, 0.2);
+}
+
+.badge-color-purple {
+  background: #F5F3FF;
+  color: #6D28D9;
+  border: 1px solid rgba(109, 40, 217, 0.2);
+}
+
+.badge-color-red {
+  background: #FEF2F2;
+  color: #B91C1C;
+  border: 1px solid rgba(185, 28, 28, 0.2);
+}
+
+[data-theme="dark"] .badge-color-blue {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93C5FD;
+}
+
+[data-theme="dark"] .badge-color-purple {
+  background: rgba(139, 92, 246, 0.18);
+  color: #C4B5FD;
+}
+
+[data-theme="dark"] .badge-color-red {
+  background: rgba(239, 68, 68, 0.18);
+  color: #FCA5A5;
+}
+
+.lookup-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.lookup-tab-btn {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  padding: 6px 13px;
+  border-radius: 9999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lookup-tab-btn.active {
+  background: var(--text-main);
+  color: var(--bg-primary);
+  border-color: var(--text-main);
+}
+
+.lookup-add-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.lookups-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lookup-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+
 @media (max-width: 960px) {
   .cover-studio-body {
     grid-template-columns: 1fr;

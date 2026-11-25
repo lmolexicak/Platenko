@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261125e">
+  <link rel="stylesheet" href="styles.css?v=20261125f">
 </head>
 <body>
 
@@ -23,6 +23,7 @@
       </a>
       <div class="nav-actions">
         <a href="index.html" class="theme-toggle-btn" style="text-decoration: none;">← Galéria</a>
+        <button type="button" id="adminLookupsBtn" class="theme-toggle-btn" style="display: none;" title="Spravovať číselníky (Techniky, Stavy, Médiá, Rozmery)">⚙️ <span>Číselníky</span></button>
         <a href="sorter.html" id="adminSorterLink" class="theme-toggle-btn" style="display: none; text-decoration: none;">📋 <span>Organizér</span></a>
         <button id="adminLogoutBtn" class="theme-toggle-btn" style="display: none; color: #ef4444;" title="Odhlásiť sa">🚪 <span>Odhlásiť</span></button>
         <button id="themeToggle" class="theme-toggle-btn">🌙 <span>Tmavý</span></button>
@@ -193,7 +194,10 @@
 
           <div>
             <label class="edit-label" for="admMedium">Médium</label>
-            <input type="text" id="admMedium" class="edit-input" value="Akryl na plátne">
+            <select id="admMedium" class="edit-select">
+              <option value="Akryl na plátne">Akryl na plátne</option>
+              <option value="Akryl a zlatá fólia na plátne">Akryl a zlatá fólia na plátne</option>
+            </select>
           </div>
 
           <div>
@@ -358,8 +362,52 @@
     <canvas id="coverLoupeCanvas" class="warp-loupe-canvas" style="display: none;"></canvas>
   </div>
 
-  <script src="perspective-warp.js?v=20261125e"></script>
-  <script src="cover-studio.js?v=20261125e"></script>
-  <script src="admin.js?v=20261125e"></script>
+  <!-- Lookups Manager Modal (Číselníky) -->
+  <div class="modal-overlay" id="lookupsModal" role="dialog" aria-modal="true" style="z-index: 330;">
+    <div class="edit-modal-box" style="max-width: 720px; max-height: 88vh; display: flex; flex-direction: column;">
+      <button class="modal-close-btn" id="lookupsCloseBtn" aria-label="Zavrieť">✕</button>
+      <div style="margin-bottom: 12px; padding-right: 40px;">
+        <h2 style="font-size: 1.3rem; margin: 0;">⚙️ Správa číselníkov</h2>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin: 4px 0 0;">
+          Zmeny sa uložia do databázy D1 a okamžite prejavia v Admin CMS, Organizéri aj verejnej galérii.
+        </p>
+      </div>
+
+      <div class="lookup-tabs" role="tablist">
+        <button type="button" class="lookup-tab-btn active" data-category="technique">🎨 Techniky</button>
+        <button type="button" class="lookup-tab-btn" data-category="status">🏷️ Stavy</button>
+        <button type="button" class="lookup-tab-btn" data-category="medium">🖌️ Médiá</button>
+        <button type="button" class="lookup-tab-btn" data-category="dimension_preset">📐 Rozmery</button>
+      </div>
+
+      <form id="lookupAddForm" class="lookup-add-bar">
+        <input type="text" id="lookupNewLabel" class="edit-input" placeholder="Nová položka..." style="flex: 1; min-width: 140px;">
+        <div id="lookupNewDimsWrap" style="display: none; align-items: center; gap: 6px;">
+          <input type="number" id="lookupNewW" class="edit-input" placeholder="Š (cm)" min="5" max="400" style="width: 86px;">
+          <span>×</span>
+          <input type="number" id="lookupNewH" class="edit-input" placeholder="V (cm)" min="5" max="400" style="width: 86px;">
+        </div>
+        <select id="lookupNewColor" class="edit-select" style="display: none; width: auto;">
+          <option value="green">Zelená</option>
+          <option value="yellow">Žltá</option>
+          <option value="gray">Sivá</option>
+          <option value="blue">Modrá</option>
+          <option value="purple">Fialová</option>
+          <option value="red">Červená</option>
+        </select>
+        <label id="lookupNewFilterWrap" style="display: none; align-items: center; gap: 5px; font-size: 0.8rem; white-space: nowrap;">
+          <input type="checkbox" id="lookupNewShowFilter" checked> Vo filtri
+        </label>
+        <button type="submit" class="btn-edit-save" style="padding: 9px 16px;">＋ Pridať</button>
+      </form>
+
+      <div id="lookupStatusMsg" style="display: none; margin-bottom: 10px;"></div>
+      <div id="lookupsList" class="lookups-list"></div>
+    </div>
+  </div>
+
+  <script src="perspective-warp.js?v=20261125f"></script>
+  <script src="cover-studio.js?v=20261125f"></script>
+  <script src="admin.js?v=20261125f"></script>
 </body>
 </html>

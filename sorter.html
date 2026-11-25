@@ -208,6 +208,34 @@
     const deletedIds = new Set(JSON.parse(localStorage.getItem("platenko_deleted_ids") || "[]"));
     let usingCloudAPI = false;
     let list = [];
+    let sorterLookups = {
+      techniques: [
+        { code: "Pouring", label: "Pouring" },
+        { code: "Airbrush", label: "Airbrush" },
+        { code: "Mixed", label: "Mixed" },
+        { code: "Brush", label: "Brush" }
+      ],
+      statuses: [
+        { code: "Available", label: "Dostupný" },
+        { code: "Reserved", label: "Rezervovaný" },
+        { code: "Sold", label: "Predaný" }
+      ]
+    };
+
+    function buildDynamicSelectHtml(items, currentVal, onChangeAttr) {
+      const seen = new Set();
+      let opts = (items || []).map((item) => {
+        seen.add(item.code);
+        const sel = currentVal === item.code ? "selected" : "";
+        const escVal = String(item.code).replace(/"/g, "&quot;");
+        return `<option value="${escVal}" ${sel}>${item.label}</option>`;
+      }).join("");
+      if (currentVal && !seen.has(currentVal)) {
+        const escCur = String(currentVal).replace(/"/g, "&quot;");
+        opts += `<option value="${escCur}" selected>${currentVal}</option>`;
+      }
+      return `<select class="status-select" onchange="${onChangeAttr}">${opts}</select>`;
+    }
 
     const tbody = document.getElementById("sorterTableBody");
     const totalCountEl = document.getElementById("totalCount");
@@ -330,22 +358,13 @@
             <input type="text" class="inline-edit-input" value="${art.title.replace(/"/g, '&quot;')}" onchange="updateTitle('${art.id}', this.value)">
           </td>
           <td>
-            <select class="status-select" onchange="updateTechnique('${art.id}', this.value)">
-              <option value="Pouring" ${art.technique === 'Pouring' ? 'selected' : ''}>Pouring</option>
-              <option value="Airbrush" ${art.technique === 'Airbrush' ? 'selected' : ''}>Airbrush</option>
-              <option value="Mixed" ${art.technique === 'Mixed' ? 'selected' : ''}>Mixed</option>
-              <option value="Brush" ${art.technique === 'Brush' ? 'selected' : ''}>Brush</option>
-            </select>
+            ${buildDynamicSelectHtml(sorterLookups.techniques, art.technique || "Mixed", `updateTechnique('${art.id}', this.value)`)}
           </td>
           <td>
             <span class="tag-badge">📷 ${photosCount}</span>
           </td>
           <td>
-            <select class="status-select" onchange="updateStatus('${art.id}', this.value)">
-              <option value="Available" ${art.status === 'Available' ? 'selected' : ''}>Dostupný</option>
-              <option value="Reserved" ${art.status === 'Reserved' ? 'selected' : ''}>Rezervovaný</option>
-              <option value="Sold" ${art.status === 'Sold' ? 'selected' : ''}>Predaný</option>
-            </select>
+            ${buildDynamicSelectHtml(sorterLookups.statuses, art.status || "Available", `updateStatus('${art.id}', this.value)`)}
           </td>
           <td>
             <button style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:1.05rem;" title="Odstrániť maľbu" onclick="removeItem('${art.id}')">✕</button>
@@ -615,9 +634,21 @@
     async function loadFromAPI() {
       tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted);">⏳ Načítavam zoznam malieb…</td></tr>`;
       try {
-        const resp = await fetch("/api/artworks");
-        if (!resp.ok) throw new Error("HTTP " + resp.status);
-        const data = await resp.json();
+        const [artResp, lkResp] = await Promise.all([
+          fetch("/api/artworks"),
+          fetch("/api/lookups").catch(() => null)
+        ]);
+        if (lkResp && lkResp.ok) {
+          const lkData = await lkResp.json().catch(() => null);
+          if (lkData && Array.isArray(lkData.techniques)) {
+            sorterLookups = {
+              techniques: lkData.techniques,
+              statuses: lkData.statuses || sorterLookups.statuses
+            };
+          }
+        }
+        if (!artResp.ok) throw new Error("HTTP " + artResp.status);
+        const data = await artResp.json();
         if (Array.isArray(data) && data.length > 0) {
           usingCloudAPI = true;
           list = data;
