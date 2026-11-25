@@ -160,6 +160,24 @@ export default {
       return { contentType, bytes, ext };
     };
 
+    const uploadDataImageWithThumb = async (dataUrl, thumbDataUrl, folder, prefix = 'cover') => {
+      const decoded = decodeDataImage(dataUrl);
+      if (!decoded) return null;
+      const rand = Math.random().toString(36).slice(2, 6);
+      const r2Key = `paintings/${folder}/${prefix}_${Date.now()}_${rand}.${decoded.ext}`;
+      await env.IMAGES.put(r2Key, decoded.bytes, {
+        httpMetadata: { contentType: decoded.contentType },
+      });
+
+      const decodedThumb = decodeDataImage(thumbDataUrl);
+      if (decodedThumb) {
+        await env.IMAGES.put(`thumbs/${r2Key}`, decodedThumb.bytes, {
+          httpMetadata: { contentType: decodedThumb.contentType },
+        });
+      }
+      return `images/${r2Key}`;
+    };
+
     const deleteUnusedR2Images = async (candidateUrls) => {
       const uniqueUrls = Array.from(new Set((candidateUrls || []).filter(Boolean)));
       const keysToDelete = [];
@@ -382,7 +400,7 @@ export default {
     if (pathname === '/api/artworks' && request.method === 'GET') {
       try {
         const { results: artworks } = await env.DB.prepare(
-          `SELECT * FROM artworks ORDER BY date_created DESC, id DESC`
+          `SELECT * FROM artworks ORDER BY sort_order ASC, date_created DESC, id DESC`
         ).all();
 
         const { results: images } = await env.DB.prepare(
@@ -415,6 +433,7 @@ export default {
             depthCm,
             instagramUrl: art.instagram_url || '',
             rawImage: art.raw_image || '',
+            sortOrder: Number(art.sort_order) || 0,
             status: art.status,
             photoCount: art.photo_count || detailImgs.length,
             coverImage: art.cover_image || (detailImgs.length > 0 ? detailImgs[0] : ''),
@@ -452,16 +471,20 @@ export default {
           depthCm = 4,
           instagramUrl = '',
           rawImage = '',
+          rawImageDataUrl = '',
+          sortOrder = 0,
           status = 'Available',
           description = '',
           coverImage = '',
           detailImages = [],
+          thumbMap = {},
         } = body;
 
         if (!id) {
           return jsonResponse({ error: 'Missing artwork id' }, 400);
         }
 
+        const resolvedFolder = folder || id.replace(/^art-/, '');
         const hasExplicitDims = Number(widthCm) > 0 && Number(heightCm) > 0;
         const parsedFromStr = parseDimPair(dimensions || '50 × 70 cm');
         const resolvedWidth = hasExplicitDims ? Number(widthCm) : parsedFromStr.widthCm;
@@ -469,19 +492,38 @@ export default {
         const resolvedDepth = Number(depthCm) > 0 ? Number(depthCm) : 4;
         const resolvedDimensions = dimensions || `${resolvedWidth} × ${resolvedHeight} cm`;
 
-        const imgs = Array.isArray(detailImages) && detailImages.length > 0
+        const rawInputs = Array.isArray(detailImages) && detailImages.length > 0
           ? detailImages
           : (coverImage ? [coverImage] : []);
-        const resolvedCover = coverImage || imgs[0] || '';
+
+        const resolvedImgs = [];
+        for (let idx = 0; idx < rawInputs.length; idx++) {
+          const entry = rawInputs[idx];
+          if (typeof entry === 'string' && entry.startsWith('data:image/')) {
+            const thumbCandidate = thumbMap && typeof thumbMap === 'object' ? thumbMap[entry] : null;
+            const uploadedUrl = await uploadDataImageWithThumb(entry, thumbCandidate, resolvedFolder, idx === 0 ? 'cover' : 'detail');
+            if (uploadedUrl) resolvedImgs.push(uploadedUrl);
+          } else if (typeof entry === 'string' && entry.length > 0) {
+            resolvedImgs.push(entry);
+          }
+        }
+
+        let resolvedRawImage = rawImage || '';
+        if (typeof rawImageDataUrl === 'string' && rawImageDataUrl.startsWith('data:image/')) {
+          const uploadedRaw = await uploadDataImageWithThumb(rawImageDataUrl, null, resolvedFolder, 'raw');
+          if (uploadedRaw) resolvedRawImage = uploadedRaw;
+        }
+
+        const resolvedCover = resolvedImgs[0] || (coverImage && !coverImage.startsWith('data:image/') ? coverImage : '');
 
         await env.DB.prepare(`
           INSERT OR REPLACE INTO artworks
-            (id, folder_name, title, date_created, year, technique, medium, dimensions, width_cm, height_cm, depth_cm, instagram_url, raw_image, status, description, cover_image, photo_count)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, folder_name, title, date_created, year, technique, medium, dimensions, width_cm, height_cm, depth_cm, instagram_url, raw_image, sort_order, status, description, cover_image, photo_count)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
           .bind(
             id,
-            folder ?? id.replace(/^art-/, ''),
+            resolvedFolder,
             title ?? '',
             date ?? null,
             year ?? null,
@@ -492,18 +534,19 @@ export default {
             resolvedHeight,
             resolvedDepth,
             instagramUrl ?? '',
-            rawImage ?? '',
+            resolvedRawImage,
+            Number.isFinite(Number(sortOrder)) ? Number(sortOrder) : 0,
             status ?? 'Available',
             description ?? '',
             resolvedCover,
-            imgs.length
+            resolvedImgs.length
           )
           .run();
 
         const stmts = [
           env.DB.prepare(`DELETE FROM artwork_images WHERE artwork_id = ?`).bind(id),
         ];
-        imgs.forEach((imgUrl, idx) => {
+        resolvedImgs.forEach((imgUrl, idx) => {
           stmts.push(
             env.DB.prepare(
               `INSERT INTO artwork_images (artwork_id, image_url, is_cover, sort_order) VALUES (?, ?, ?, ?)`
@@ -512,7 +555,39 @@ export default {
         });
         await env.DB.batch(stmts);
 
-        return jsonResponse({ success: true, id });
+        return jsonResponse({
+          success: true,
+          id,
+          coverImage: resolvedCover,
+          detailImages: resolvedImgs,
+          rawImage: resolvedRawImage,
+          photoCount: resolvedImgs.length,
+        });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // POST /api/artworks/reorder - Persist custom inventory sort order (Authenticated)
+    if (pathname === '/api/artworks/reorder' && request.method === 'POST') {
+      try {
+        const session = await getAuthSession(request);
+        if (!session.authenticated) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const body = await request.json();
+        const orderedIds = body && Array.isArray(body.orderedIds) ? body.orderedIds.filter(Boolean) : [];
+        if (orderedIds.length === 0) {
+          return jsonResponse({ error: 'orderedIds array is required' }, 400);
+        }
+
+        const stmts = orderedIds.map((artId, idx) =>
+          env.DB.prepare(`UPDATE artworks SET sort_order = ? WHERE id = ?`).bind(idx + 1, artId)
+        );
+        await env.DB.batch(stmts);
+
+        return jsonResponse({ success: true, count: orderedIds.length });
       } catch (err) {
         return jsonResponse({ error: err.message }, 500);
       }
@@ -630,6 +705,8 @@ export default {
           depthCm,
           instagramUrl,
           rawImage,
+          rawImageDataUrl,
+          sortOrder,
           status,
           technique,
           medium,
@@ -637,6 +714,22 @@ export default {
           detailImages,
           thumbMap = {},
         } = body;
+
+        const existingArtRow = await env.DB.prepare(
+          `SELECT folder_name, raw_image FROM artworks WHERE id = ?`
+        )
+          .bind(id)
+          .first();
+        const folder = (existingArtRow && existingArtRow.folder_name) || id.replace(/^art-/, '');
+
+        let uploadedRawUrl = null;
+        let oldRawToClean = null;
+        if (typeof rawImageDataUrl === 'string' && rawImageDataUrl.startsWith('data:image/')) {
+          uploadedRawUrl = await uploadDataImageWithThumb(rawImageDataUrl, null, folder, 'raw');
+          if (uploadedRawUrl && existingArtRow && existingArtRow.raw_image && existingArtRow.raw_image !== uploadedRawUrl) {
+            oldRawToClean = existingArtRow.raw_image;
+          }
+        }
 
         const hasExplicitDims = Number(widthCm) > 0 && Number(heightCm) > 0;
         let syncedDimensions = dimensions ?? null;
@@ -651,6 +744,7 @@ export default {
           syncedHeight = parsed.heightCm;
         }
         const syncedDepth = Number(depthCm) > 0 ? Number(depthCm) : null;
+        const syncedSortOrder = Number.isFinite(Number(sortOrder)) ? Number(sortOrder) : null;
 
         await env.DB.prepare(`
           UPDATE artworks
@@ -661,6 +755,7 @@ export default {
               depth_cm = COALESCE(?, depth_cm),
               instagram_url = COALESCE(?, instagram_url),
               raw_image = COALESCE(?, raw_image),
+              sort_order = COALESCE(?, sort_order),
               status = COALESCE(?, status),
               technique = COALESCE(?, technique),
               medium = COALESCE(?, medium),
@@ -674,7 +769,8 @@ export default {
             syncedHeight,
             syncedDepth,
             instagramUrl ?? null,
-            rawImage ?? null,
+            uploadedRawUrl ?? rawImage ?? null,
+            syncedSortOrder,
             status ?? null,
             technique ?? null,
             medium ?? null,
@@ -685,7 +781,12 @@ export default {
 
         let resolvedImages;
         let deletedKeys = [];
-        let preservedRawImage = null;
+        let preservedRawImage = uploadedRawUrl || null;
+
+        if (oldRawToClean) {
+          const cleanedRaw = await deleteUnusedR2Images([oldRawToClean]);
+          deletedKeys.push(...cleanedRaw);
+        }
 
         if (Array.isArray(detailImages) && detailImages.length > 0) {
           const { results: oldImgRows } = await env.DB.prepare(
@@ -694,36 +795,17 @@ export default {
             .bind(id)
             .all();
           const oldUrls = (oldImgRows || []).map((r) => r.image_url);
-
-          const artRow = await env.DB.prepare(
-            `SELECT folder_name, raw_image FROM artworks WHERE id = ?`
-          )
-            .bind(id)
-            .first();
-          const folder = (artRow && artRow.folder_name) || id.replace(/^art-/, '');
           let uploadedNewCover = false;
 
           resolvedImages = [];
           for (let idx = 0; idx < detailImages.length; idx++) {
             const entry = detailImages[idx];
             if (typeof entry === 'string' && entry.startsWith('data:image/')) {
-              const decoded = decodeDataImage(entry);
-              if (decoded) {
-                const r2Key = `paintings/${folder}/cover_${Date.now()}_${idx}.${decoded.ext}`;
-                await env.IMAGES.put(r2Key, decoded.bytes, {
-                  httpMetadata: { contentType: decoded.contentType },
-                });
-
-                const thumbCandidate = thumbMap && typeof thumbMap === 'object' ? thumbMap[entry] : null;
-                const decodedThumb = decodeDataImage(thumbCandidate);
-                if (decodedThumb) {
-                  await env.IMAGES.put(`thumbs/${r2Key}`, decodedThumb.bytes, {
-                    httpMetadata: { contentType: decodedThumb.contentType },
-                  });
-                }
-
+              const thumbCandidate = thumbMap && typeof thumbMap === 'object' ? thumbMap[entry] : null;
+              const uploadedUrl = await uploadDataImageWithThumb(entry, thumbCandidate, folder, idx === 0 ? 'cover' : 'detail');
+              if (uploadedUrl) {
                 if (idx === 0) uploadedNewCover = true;
-                resolvedImages.push(`images/${r2Key}`);
+                resolvedImages.push(uploadedUrl);
                 continue;
               }
             }
@@ -733,12 +815,12 @@ export default {
           }
 
           if (resolvedImages.length > 0) {
-            if (uploadedNewCover && (!artRow || !artRow.raw_image) && oldUrls[0]) {
+            if (!preservedRawImage && uploadedNewCover && (!existingArtRow || !existingArtRow.raw_image) && oldUrls[0]) {
               preservedRawImage = oldUrls[0];
             }
 
             const stmts = [
-              preservedRawImage
+              (!uploadedRawUrl && preservedRawImage)
                 ? env.DB.prepare(
                     `UPDATE artworks SET cover_image = ?, photo_count = ?, raw_image = ? WHERE id = ?`
                   ).bind(resolvedImages[0], resolvedImages.length, preservedRawImage, id)
@@ -757,11 +839,17 @@ export default {
             await env.DB.batch(stmts);
 
             const removedUrls = oldUrls.filter((u) => !resolvedImages.includes(u));
-            deletedKeys = await deleteUnusedR2Images(removedUrls);
+            const cleanedRemoved = await deleteUnusedR2Images(removedUrls);
+            deletedKeys.push(...cleanedRemoved);
           }
         }
 
         const respPayload = { success: true, id, deletedFiles: deletedKeys.length };
+        if (syncedWidth) respPayload.widthCm = syncedWidth;
+        if (syncedHeight) respPayload.heightCm = syncedHeight;
+        if (syncedDepth) respPayload.depthCm = syncedDepth;
+        if (syncedDimensions) respPayload.dimensions = syncedDimensions;
+        if (instagramUrl !== undefined) respPayload.instagramUrl = instagramUrl;
         if (preservedRawImage) respPayload.rawImage = preservedRawImage;
         if (resolvedImages && resolvedImages.length > 0) {
           respPayload.coverImage = resolvedImages[0];

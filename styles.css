@@ -1637,3 +1637,302 @@ footer {
     padding: 12px 16px;
   }
 }
+
+/* ==========================================================================
+   Phase 3: Admin CMS (/admin) & 4-Point Perspective Homography Modal
+   ========================================================================== */
+.admin-cms-container {
+  max-width: 1360px;
+  margin: 28px auto 80px;
+  padding: 0 24px;
+}
+
+.admin-cms-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  gap: 28px;
+  align-items: start;
+}
+
+.admin-cms-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow: var(--card-shadow);
+}
+
+.admin-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.adm-upload-zone {
+  background: var(--bg-subtle);
+  border: 1.5px dashed var(--border-color);
+  border-radius: 12px;
+  padding: 16px;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.adm-upload-zone.drag-over {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.adm-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.adm-upload-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 10px 0 0;
+}
+
+.adm-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+}
+
+.adm-cover-thumb {
+  width: 82px;
+  height: 82px;
+  object-fit: cover;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+}
+
+.adm-dims-box {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.adm-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.preset-chip {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 3px 9px;
+  border-radius: 9999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.preset-chip:hover {
+  border-color: var(--border-focus);
+}
+
+.adm-sofa-preview {
+  position: relative;
+  height: 190px;
+  background: linear-gradient(180deg, #F4F2EC 0%, #ECEAE2 88%, #CFC4AE 88%, #B8AA90 100%);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.adm-sofa-paint {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #27272A, #52525B);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+  transition: width 0.12s, height 0.12s, bottom 0.12s;
+}
+
+.adm-sofa-couch {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  transition: width 0.12s, height 0.12s;
+}
+
+.adm-sofa-caption {
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.68rem;
+  color: #3F3F46;
+  white-space: nowrap;
+}
+
+.adm-inventory-scroll {
+  overflow-x: auto;
+  max-height: 75vh;
+  overflow-y: auto;
+}
+
+.adm-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.adm-table th {
+  text-align: left;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  background: var(--bg-surface);
+  z-index: 2;
+}
+
+.adm-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.adm-row-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  object-fit: cover;
+  display: block;
+}
+
+.adm-icon-btn {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+}
+
+.adm-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* 4-Point Perspective Modal */
+.warp-modal-box {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  max-width: 1100px;
+  width: 96%;
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5);
+}
+
+.warp-body {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 20px;
+  padding: 20px;
+  overflow-y: auto;
+  align-items: center;
+}
+
+.warp-source-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.warp-source-canvas {
+  max-width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  touch-action: none;
+  cursor: crosshair;
+  display: block;
+}
+
+.warp-rot-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-subtle);
+  border-radius: 8px;
+}
+
+.warp-preview-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.warp-preview-frame {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  width: 100%;
+}
+
+.warp-preview-canvas {
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: 2px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+}
+
+.warp-loupe-canvas {
+  position: fixed;
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  border: 3px solid #ffffff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 400;
+}
+
+@media (max-width: 960px) {
+  .admin-cms-grid {
+    grid-template-columns: 1fr;
+  }
+  .warp-body {
+    grid-template-columns: 1fr;
+  }
+}

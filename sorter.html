@@ -103,6 +103,7 @@
       </a>
       <div class="nav-actions">
         <a href="index.html" class="theme-toggle-btn" style="text-decoration: none;">← Galéria</a>
+        <a href="/admin" id="sorterAdminLink" class="theme-toggle-btn" style="display: none; text-decoration: none;" title="Admin CMS">🏛️ <span>Admin CMS</span></a>
         <button id="sorterLogoutBtn" class="theme-toggle-btn" style="display: none; color: #ef4444;" title="Odhlásiť sa">🚪 <span>Odhlásiť</span></button>
         <button id="themeToggle" class="theme-toggle-btn">🌙 <span>Tmavý</span></button>
       </div>
@@ -226,6 +227,7 @@
     const sorterAuthError = document.getElementById("sorterAuthError");
     const sorterLoginSubmit = document.getElementById("sorterLoginSubmit");
     const sorterLogoutBtn = document.getElementById("sorterLogoutBtn");
+    const sorterAdminLink = document.getElementById("sorterAdminLink");
 
     // Merge selection state
     let mergeSelection = []; // array of selected IDs (can be 2, 3, 4+)
@@ -240,6 +242,7 @@
     function showAuthGate(errorMsg = "") {
       if (sorterMain) sorterMain.style.display = "none";
       if (sorterLogoutBtn) sorterLogoutBtn.style.display = "none";
+      if (sorterAdminLink) sorterAdminLink.style.display = "none";
       if (sorterAuthOverlay) sorterAuthOverlay.classList.add("open");
       if (sorterAuthError) {
         if (errorMsg) {
@@ -258,6 +261,7 @@
       if (sorterAuthOverlay) sorterAuthOverlay.classList.remove("open");
       if (sorterMain) sorterMain.style.display = "block";
       if (sorterLogoutBtn) sorterLogoutBtn.style.display = showLogout ? "inline-flex" : "none";
+      if (sorterAdminLink) sorterAdminLink.style.display = showLogout ? "inline-flex" : "none";
     }
 
     async function persistItem(id, payload) {
