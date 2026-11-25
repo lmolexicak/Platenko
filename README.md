@@ -1,39 +1,28 @@
-# Platenko - Original Art Portfolio
+# Plátenko Akryl — Portfólio originálnych malieb
 
-A lightweight, modern, responsive gallery website created for showcasing original canvas artworks (acrylic pouring, airbrushing, and contemporary brushwork).
+Moderná zero-build webová galéria a CMS postavená na **Cloudflare Workers + D1 + R2** a **Three.js** pre prezentáciu originálnych akrylových malieb na plátne (`@platenko.akryl`).
 
-## 🚀 How to View Locally
-You don't need any complex installation or command line tools!
-1. Open your File Explorer to:
-   `C:\Users\mario\.gemini\antigravity\scratch\Platenko`
-2. Double-click **`index.html`** to open it in Chrome, Edge, Brave, or your favorite browser.
-3. Try clicking on paintings to view details and testing the **Dark / Light theme** button in the top right.
+- **Produkčná galéria:** https://platenko.lm-olexicak.workers.dev/
+- **Admin CMS:** `/admin.html` (prihlásenie, katalóg, 4-bodový výrez, 3D Cover Studio, číselníky)
+- **Organizér & zlučovanie albumov:** `/sorter.html`
+- **Lokálny priečinok projektu:** `C:\Projects\Platenko`
 
 ---
 
-## 🎨 How to Add Your Own Paintings (2 Easy Ways)
-
-### Option A: Use the Built-in Visual Wizard (Recommended!)
-1. Open the gallery in your browser and click **🪄 Studio Wizard** in the top navigation bar (or open `studio.html` directly).
-2. Put your painting photos in the `images/` folder.
-3. Fill in the title, style, dimensions, and select your photos to see an instant live preview.
-4. Click **"Save to Gallery"**—your new painting appears on your website immediately!
-5. You can also edit existing paintings, change status to "Sold", or click **"Download updated artworks.js"** to bake your changes permanently into the source code.
+## Dokumentácia v repozitári
+- **[AGENTS.md](AGENTS.md)** — projektové pravidlá, bezpečnostné mantinely a pracovný postup pre Antigravity.
+- **[PROJECT_SPEC.md](PROJECT_SPEC.md)** — kompletná technická špecifikácia systému, dátového modelu, API a znovupoužiteľná šablóna pre nové weby.
 
 ---
 
-### Option B: Ask Angie to Bulk Import
-Just copy your photos into `images/` and tell Angie in chat:
-> *"I added 3 photos to the images folder: photo1.jpg is 'Ocean Glow', 60x80cm, acrylic pouring, available..."*
-
-Angie will automatically code them all into `artworks.js` for you in seconds!
+## Hlavné funkcie
+- **2D White Cube galéria:** dynamický **Justified Equal-Height** layout riadkov (rovnaká výška kariet pre portrait aj landscape formáty), responzívny 2-riadkový mobilný header, Light/Dark režim, živé vyhľadávanie a dynamické filtre z D1 číselníkov.
+- **3D Virtuálna galéria & Guided Tour:** multi-room 3D expozícia s 3500K múzejným osvetlením, lazy-loadingom textúr a plynulým kolmým Zoom-to-Fill + Hi-Res 2D prechodom.
+- **WebAR 1:1 náhľad na stene:** Desktop QR kód, Android WebXR, iOS USDZ export, univerzálny kamera fallback s kalibráciou ISO platobnou kartou (`8.56 × 5.40 cm`) a diptych/triptych režimom.
+- **Unifikované `/admin` CMS:** nedeštruktívna práca s originálmi (`raw_image`), multi-photo albumy, 90° rotácie, 4-bodový perspektívny výrez a 3D Cover Studio s 3× lupou a kolieskovým zoomom (`1×–6×`), dynamický správca číselníkov (`⚙️ Číselníky`).
 
 ---
 
-## 🧭 Project Roadmap
-- [x] **Phase 1: Project Setup** - Minimalist gallery architecture with instant theme switching.
-- [x] **Phase 2: Artwork Data Model** - Structured by painting with multiple detail photos, dimensions, and techniques.
-- [x] **Phase 3: Interactive Gallery** - Responsive grid, technique filter buttons, full-screen lightbox modal.
-- [ ] **Phase 4: Contact & Commission Form** - Email dispatch (can be connected whenever you're ready).
-- [ ] **Phase 5: Final Polish** - Your actual photos and personal biography details.
-- [ ] **Phase 6: Free Web Hosting & Custom Domain** - Publishing live to the internet.
+## Nasadenie & Zálohy
+- **Deploy:** push na vetvu `main` automaticky nasadzuje do Cloudflare Workers (držíme `dev` zosynchronizovaný s `main`).
+- **Záloha D1 databázy (lokálne):** `powershell -NoProfile -ExecutionPolicy Bypass -File .\backup_d1.ps1` (vyžaduje `.env.cloudflare`, zálohy idú do `backups/`).
