@@ -1686,6 +1686,8 @@ footer {
   border-radius: 14px;
   padding: 24px;
   box-shadow: var(--card-shadow);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .admin-card-head {
@@ -1815,6 +1817,8 @@ footer {
   overflow-x: auto;
   max-height: 75vh;
   overflow-y: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 .adm-table {
@@ -2111,6 +2115,12 @@ body.adm-is-dragging {
 }
 
 @media (max-width: 960px) {
+  .admin-cms-container {
+    padding: 0 12px;
+  }
+  .admin-cms-card {
+    padding: 16px;
+  }
   .admin-cms-grid {
     grid-template-columns: 1fr;
   }
