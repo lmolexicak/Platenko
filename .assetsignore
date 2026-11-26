@@ -3,6 +3,7 @@ wrangler.toml
 README.md
 AGENTS.md
 PROJECT_SPEC.md
+TEMPLATE_GUIDE.md
 *.ps1
 *.sql
 .env*
