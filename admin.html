@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261125f">
+  <link rel="stylesheet" href="styles.css?v=20261126a">
 </head>
 <body>
 
@@ -226,7 +226,7 @@
         <div class="admin-card-head" style="flex-wrap: wrap;">
           <div>
             <h2 style="font-size: 1.2rem; margin: 0;">🖼️ Katalóg diel (<span id="admTotalCount">0</span>)</h2>
-            <span style="font-size: 0.78rem; color: var(--text-muted);">Zmena poradia (↑ / ↓), úprava orezu a priame mazanie</span>
+            <span style="font-size: 0.78rem; color: var(--text-muted);">Ťahajte riadky (⋮⋮), kliknite na číslo pozície alebo použite ↑ / ↓</span>
           </div>
           <input type="text" id="admSearchInput" class="edit-input" style="max-width: 220px; padding: 7px 12px;" placeholder="Hľadať dielo...">
         </div>
@@ -235,6 +235,7 @@
           <table class="adm-table">
             <thead>
               <tr>
+                <th style="width: 72px;" title="Potiahnite za ⋮⋮ alebo kliknite na číslo pozície">#</th>
                 <th style="width: 56px;">Foto</th>
                 <th>Názov &amp; rozmery</th>
                 <th style="width: 118px;">Stav</th>
@@ -242,7 +243,7 @@
               </tr>
             </thead>
             <tbody id="admInventoryBody">
-              <tr><td colspan="4" style="text-align:center;padding:32px;color:var(--text-muted);">Načítavam diela...</td></tr>
+              <tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted);">Načítavam diela...</td></tr>
             </tbody>
           </table>
         </div>
@@ -406,8 +407,8 @@
     </div>
   </div>
 
-  <script src="perspective-warp.js?v=20261125f"></script>
-  <script src="cover-studio.js?v=20261125f"></script>
-  <script src="admin.js?v=20261125f"></script>
+  <script src="perspective-warp.js?v=20261126a"></script>
+  <script src="cover-studio.js?v=20261126a"></script>
+  <script src="admin.js?v=20261126a"></script>
 </body>
 </html>

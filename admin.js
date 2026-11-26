@@ -118,6 +118,7 @@
 
     dom.totalCount = document.getElementById("admTotalCount");
     dom.searchInput = document.getElementById("admSearchInput");
+    dom.inventoryScroll = document.querySelector(".adm-inventory-scroll");
     dom.inventoryBody = document.getElementById("admInventoryBody");
     dom.themeBtn = document.getElementById("themeToggle");
   }
@@ -713,6 +714,8 @@
     reader.readAsDataURL(file);
   }
 
+  let dragState = null;
+
   // ---- Inventory Table ----
   function renderInventory() {
     if (!dom.inventoryBody) return;
@@ -728,12 +731,15 @@
     dom.inventoryBody.innerHTML = "";
 
     if (filtered.length === 0) {
-      dom.inventoryBody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:28px;color:var(--text-muted);">Žiadne diela.</td></tr>`;
+      dom.inventoryBody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--text-muted);">Žiadne diela.</td></tr>`;
       return;
     }
 
     filtered.forEach((art) => {
+      const globalIdx = artworks.indexOf(art);
       const tr = document.createElement("tr");
+      tr.dataset.artId = art.id;
+      tr.dataset.globalIdx = String(globalIdx);
       if (editingId && art.id === editingId) {
         tr.classList.add("is-active");
       }
@@ -742,6 +748,12 @@
       const isSearching = Boolean(q);
 
       tr.innerHTML = `
+        <td class="adm-order-cell">
+          <div class="adm-order-wrap">
+            <button type="button" class="adm-drag-handle" title="${isSearching ? "Zruš vyhľadávanie pre presun ťahaním" : "Chyť a potiahni pre zmenu poradia"}" aria-label="Presunúť dielo ťahaním" ${isSearching ? "disabled" : ""}>⋮⋮</button>
+            <button type="button" class="adm-pos-btn" title="Klikni a zadaj cieľovú pozíciu (1–${artworks.length})" aria-label="Zmeniť pozíciu #${globalIdx + 1}">${globalIdx + 1}</button>
+          </div>
+        </td>
         <td>
           <img src="${thumbSrc}" alt="${art.title}" class="adm-row-thumb" loading="lazy" decoding="async">
         </td>
@@ -769,6 +781,15 @@
         await quickUpdateArtwork(art.id, { status: newStatus });
       });
 
+      const dragHandle = tr.querySelector(".adm-drag-handle");
+      if (dragHandle && !isSearching) {
+        dragHandle.addEventListener("pointerdown", (e) => startRowDrag(e, tr, art, globalIdx));
+      }
+      const posBtn = tr.querySelector(".adm-pos-btn");
+      if (posBtn) {
+        posBtn.addEventListener("click", () => openInlinePositionEditor(tr, art, globalIdx));
+      }
+
       tr.querySelector(".adm-up-btn").addEventListener("click", () => moveArtworkOrder(art.id, -1));
       tr.querySelector(".adm-down-btn").addEventListener("click", () => moveArtworkOrder(art.id, 1));
       tr.querySelector(".adm-crop-btn").addEventListener("click", () => {
@@ -781,6 +802,202 @@
 
       dom.inventoryBody.appendChild(tr);
     });
+  }
+
+  function openInlinePositionEditor(tr, art, globalIdx) {
+    const posBtn = tr.querySelector(".adm-pos-btn");
+    if (!posBtn || !posBtn.parentNode || artworks.length < 2) return;
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.className = "adm-pos-input";
+    input.min = "1";
+    input.max = String(artworks.length);
+    input.value = String(globalIdx + 1);
+    input.setAttribute("aria-label", `Cieľová pozícia pre ${art.title || "dielo"}`);
+
+    posBtn.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let finished = false;
+    const restore = () => {
+      if (input.parentNode) {
+        input.replaceWith(posBtn);
+      }
+    };
+    const commit = () => {
+      if (finished) return;
+      finished = true;
+      const val = parseInt(input.value, 10);
+      if (Number.isNaN(val)) {
+        restore();
+        return;
+      }
+      const clampedPos = Math.min(artworks.length, Math.max(1, val));
+      const targetIdx = clampedPos - 1;
+      if (targetIdx !== globalIdx) {
+        reorderArtworkToIndex(art.id, targetIdx, { scrollToMoved: true });
+      } else {
+        restore();
+      }
+    };
+    const cancel = () => {
+      if (finished) return;
+      finished = true;
+      restore();
+    };
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commit();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancel();
+      }
+    });
+    input.addEventListener("blur", commit);
+  }
+
+  function startRowDrag(e, sourceRow, art, fromIdx) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if ((dom.searchInput ? dom.searchInput.value : "").trim().length > 0) return;
+    if (artworks.length < 2 || dragState) return;
+    e.preventDefault();
+
+    const ghostEl = document.createElement("div");
+    ghostEl.className = "adm-drag-ghost";
+    const ghostImg = document.createElement("img");
+    ghostImg.src = toThumbUrl(art.coverImage);
+    ghostImg.alt = "";
+    const ghostTitle = document.createElement("span");
+    ghostTitle.className = "adm-drag-ghost-title";
+    ghostTitle.textContent = art.title || "Bez názvu";
+    const ghostPosEl = document.createElement("span");
+    ghostPosEl.className = "adm-drag-ghost-pos";
+    ghostPosEl.textContent = `→ #${fromIdx + 1}`;
+    ghostEl.appendChild(ghostImg);
+    ghostEl.appendChild(ghostTitle);
+    ghostEl.appendChild(ghostPosEl);
+    document.body.appendChild(ghostEl);
+
+    sourceRow.classList.add("adm-row-dragging");
+    document.body.classList.add("adm-is-dragging");
+
+    dragState = {
+      artId: art.id,
+      fromIdx,
+      toIdx: fromIdx,
+      insertSlot: fromIdx,
+      sourceRow,
+      ghostEl,
+      ghostPosEl,
+      lastX: e.clientX,
+      lastY: e.clientY,
+      rafId: null,
+    };
+
+    const clearDropIndicators = () => {
+      if (!dom.inventoryBody) return;
+      dom.inventoryBody.querySelectorAll("tr.adm-drop-before, tr.adm-drop-after").forEach((r) => {
+        r.classList.remove("adm-drop-before", "adm-drop-after");
+      });
+    };
+
+    const updateDropTargetFromPointer = () => {
+      if (!dragState || !dom.inventoryBody) return;
+      const rows = Array.from(dom.inventoryBody.querySelectorAll("tr[data-art-id]"));
+      clearDropIndicators();
+      let insertSlot = rows.length;
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rect = row.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        if (dragState.lastY < midY) {
+          insertSlot = i;
+          row.classList.add("adm-drop-before");
+          break;
+        }
+        if (i === rows.length - 1) {
+          insertSlot = rows.length;
+          row.classList.add("adm-drop-after");
+        }
+      }
+
+      const toIdx = insertSlot > dragState.fromIdx ? insertSlot - 1 : insertSlot;
+      dragState.insertSlot = insertSlot;
+      dragState.toIdx = Math.max(0, Math.min(artworks.length - 1, toIdx));
+      dragState.ghostPosEl.textContent = `→ #${dragState.toIdx + 1}`;
+
+      const left = Math.min(Math.max(12, dragState.lastX + 14), Math.max(12, window.innerWidth - 270));
+      const top = Math.min(Math.max(12, dragState.lastY - 24), Math.max(12, window.innerHeight - 60));
+      dragState.ghostEl.style.left = `${left}px`;
+      dragState.ghostEl.style.top = `${top}px`;
+    };
+
+    const autoScrollStep = () => {
+      if (!dragState) return;
+      if (dom.inventoryScroll) {
+        const rect = dom.inventoryScroll.getBoundingClientRect();
+        const edgeZone = 56;
+        if (dragState.lastY < rect.top + edgeZone) {
+          const intensity = Math.min(1.5, Math.max(0.15, (rect.top + edgeZone - dragState.lastY) / edgeZone));
+          dom.inventoryScroll.scrollTop -= Math.round(intensity * 14);
+          updateDropTargetFromPointer();
+        } else if (dragState.lastY > rect.bottom - edgeZone) {
+          const intensity = Math.min(1.5, Math.max(0.15, (dragState.lastY - (rect.bottom - edgeZone)) / edgeZone));
+          dom.inventoryScroll.scrollTop += Math.round(intensity * 14);
+          updateDropTargetFromPointer();
+        }
+      }
+      dragState.rafId = requestAnimationFrame(autoScrollStep);
+    };
+
+    const onPointerMove = (ev) => {
+      if (!dragState) return;
+      dragState.lastX = ev.clientX;
+      dragState.lastY = ev.clientY;
+      updateDropTargetFromPointer();
+    };
+
+    const cleanupDrag = () => {
+      if (!dragState) return;
+      if (dragState.rafId) cancelAnimationFrame(dragState.rafId);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerEnd);
+      window.removeEventListener("pointercancel", onPointerEnd);
+      window.removeEventListener("keydown", onDragKeyDown);
+      clearDropIndicators();
+      if (dragState.sourceRow) dragState.sourceRow.classList.remove("adm-row-dragging");
+      document.body.classList.remove("adm-is-dragging");
+      if (dragState.ghostEl && dragState.ghostEl.parentNode) dragState.ghostEl.remove();
+      dragState = null;
+    };
+
+    const onDragKeyDown = (ev) => {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        cleanupDrag();
+      }
+    };
+
+    const onPointerEnd = (ev) => {
+      if (!dragState) return;
+      const { artId, fromIdx: origIdx, toIdx: destIdx } = dragState;
+      cleanupDrag();
+      if (ev.type === "pointerup" && typeof destIdx === "number" && destIdx !== origIdx) {
+        reorderArtworkToIndex(artId, destIdx);
+      }
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerEnd);
+    window.addEventListener("pointercancel", onPointerEnd);
+    window.addEventListener("keydown", onDragKeyDown);
+
+    updateDropTargetFromPointer();
+    dragState.rafId = requestAnimationFrame(autoScrollStep);
   }
 
   async function loadArtworks() {
@@ -818,14 +1035,30 @@
     }
   }
 
-  async function moveArtworkOrder(id, delta) {
+  async function reorderArtworkToIndex(id, targetIdx, opts = {}) {
     const idx = artworks.findIndex((a) => a.id === id);
-    const targetIdx = idx + delta;
-    if (idx === -1 || targetIdx < 0 || targetIdx >= artworks.length) return;
+    if (idx === -1) return;
+    const safeTarget = Math.max(0, Math.min(artworks.length - 1, targetIdx));
+    if (idx === safeTarget) return;
 
+    const prevScrollTop = dom.inventoryScroll ? dom.inventoryScroll.scrollTop : 0;
     const [moved] = artworks.splice(idx, 1);
-    artworks.splice(targetIdx, 0, moved);
+    artworks.splice(safeTarget, 0, moved);
     renderInventory();
+
+    const movedRow = dom.inventoryBody
+      ? Array.from(dom.inventoryBody.querySelectorAll("tr[data-art-id]")).find((r) => r.dataset.artId === id)
+      : null;
+
+    if (opts.scrollToMoved && movedRow) {
+      movedRow.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    } else if (dom.inventoryScroll) {
+      dom.inventoryScroll.scrollTop = prevScrollTop;
+    }
+    if (movedRow) {
+      movedRow.classList.add("adm-row-just-moved");
+      setTimeout(() => movedRow.classList.remove("adm-row-just-moved"), 1200);
+    }
 
     try {
       const resp = await fetch("/api/artworks/reorder", {
@@ -838,10 +1071,18 @@
         return;
       }
       if (!resp.ok) throw new Error("HTTP " + resp.status);
-      showStatusMsg("✓ Poradie v galérii uložené.");
+      showStatusMsg(`✓ Poradie uložené (#${idx + 1} → #${safeTarget + 1}).`);
     } catch (err) {
       showStatusMsg("Nepodarilo sa uložiť poradie: " + err.message, true);
     }
+  }
+
+  async function moveArtworkOrder(id, delta) {
+    const idx = artworks.findIndex((a) => a.id === id);
+    if (idx === -1) return;
+    const targetIdx = idx + delta;
+    if (targetIdx < 0 || targetIdx >= artworks.length) return;
+    await reorderArtworkToIndex(id, targetIdx);
   }
 
   async function deleteArtwork(art) {

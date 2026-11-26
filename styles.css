@@ -1869,6 +1869,162 @@ footer {
   cursor: default;
 }
 
+/* Admin Catalog Drag-and-Drop (⋮⋮) & Inline Position Jump (#N) */
+.adm-order-cell {
+  white-space: nowrap;
+  padding-left: 6px !important;
+  padding-right: 4px !important;
+}
+
+.adm-order-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.adm-drag-handle {
+  cursor: grab;
+  touch-action: none;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 6px 4px;
+  border-radius: 6px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.adm-drag-handle:hover {
+  background: var(--bg-subtle);
+  color: var(--text-main);
+}
+
+.adm-drag-handle:active {
+  cursor: grabbing;
+}
+
+.adm-drag-handle:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.adm-pos-btn {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.adm-pos-btn:hover {
+  border-color: #6366f1;
+  color: var(--text-main);
+  background: var(--bg-surface);
+}
+
+.adm-pos-input {
+  width: 46px;
+  height: 26px;
+  padding: 0 4px;
+  border-radius: 6px;
+  border: 2px solid #6366f1;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.adm-pos-input::-webkit-outer-spin-button,
+.adm-pos-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+body.adm-is-dragging {
+  user-select: none !important;
+  cursor: grabbing !important;
+}
+
+.adm-table tr.adm-row-dragging {
+  opacity: 0.35;
+  background: var(--bg-subtle);
+}
+
+.adm-table tr.adm-drop-before td {
+  box-shadow: inset 0 3px 0 #6366f1;
+}
+
+.adm-table tr.adm-drop-after td {
+  box-shadow: inset 0 -3px 0 #6366f1;
+}
+
+.adm-table tr.adm-row-just-moved {
+  animation: admRowFlash 1.2s ease;
+}
+
+@keyframes admRowFlash {
+  0% { background: rgba(99, 102, 241, 0.24); }
+  100% { background: transparent; }
+}
+
+.adm-drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 260px;
+  padding: 7px 11px;
+  border-radius: 10px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  border: 1.5px solid #6366f1;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.24);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.adm-drag-ghost img {
+  width: 32px;
+  height: 32px;
+  border-radius: 5px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.adm-drag-ghost-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.adm-drag-ghost-pos {
+  background: #6366f1;
+  color: #fff;
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 /* 4-Point Perspective Modal */
 .warp-modal-box {
   background: var(--bg-surface);
