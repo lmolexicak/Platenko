@@ -765,7 +765,6 @@
           <select class="status-select adm-row-status"></select>
         </td>
         <td style="text-align:right;white-space:nowrap;">
-          <button type="button" class="adm-icon-btn adm-crop-btn" title="4-bodový orez (vytvorí kópiu)">📐</button>
           <button type="button" class="adm-icon-btn adm-edit-btn" title="Upraviť">✏️</button>
           <button type="button" class="adm-icon-btn adm-del-btn" title="Vymazať" style="color:#ef4444;">🗑️</button>
         </td>
@@ -788,11 +787,6 @@
         posBtn.addEventListener("click", () => openInlinePositionEditor(tr, art, globalIdx));
       }
 
-      tr.querySelector(".adm-crop-btn").addEventListener("click", () => {
-        loadArtworkIntoForm(art);
-        const src = art.rawImage || art.coverImage;
-        if (src) openWarpForSource(src, false);
-      });
       tr.querySelector(".adm-edit-btn").addEventListener("click", () => loadArtworkIntoForm(art));
       tr.querySelector(".adm-del-btn").addEventListener("click", () => deleteArtwork(art));
 
