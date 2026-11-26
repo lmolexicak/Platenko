@@ -1,5 +1,7 @@
 // Cloudflare Worker backend for Platenko Gallery
 
+let automationSchemaReady = false;
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -8,7 +10,7 @@ export default {
 
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, HEAD',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
 
@@ -116,6 +118,24 @@ export default {
       };
     };
 
+    const isAuthorizedForAutomation = async (req) => {
+      const authHeader = req.headers.get('Authorization') || '';
+      const match = authHeader.match(/^Bearer\s+(.+)$/i);
+      const expectedKey = typeof env.AUTOMATION_API_KEY === 'string' ? env.AUTOMATION_API_KEY.trim() : '';
+      if (match && expectedKey) {
+        const provided = match[1].trim();
+        if (timingSafeEqualHex(provided, expectedKey)) {
+          return { authorized: true, via: 'api_key' };
+        }
+        return { authorized: false };
+      }
+      const session = await getAuthSession(req);
+      if (session.authenticated) {
+        return { authorized: true, via: 'session' };
+      }
+      return { authorized: false };
+    };
+
     // ---- R2 Image & Cleanup Helpers ----
     const parseDimPair = (dimensionsStr) => {
       if (typeof dimensionsStr !== 'string') return { widthCm: 50, heightCm: 70 };
@@ -203,6 +223,13 @@ export default {
           .bind(imgUrl)
           .first();
         if (stillAsRaw) continue;
+
+        const stillAsSocial = await env.DB.prepare(
+          `SELECT 1 FROM artworks WHERE social_image_url = ? LIMIT 1`
+        )
+          .bind(imgUrl)
+          .first();
+        if (stillAsSocial) continue;
 
         const r2Key = urlToR2Key(imgUrl);
         if (r2Key) {
@@ -651,11 +678,413 @@ export default {
       }
     }
 
-    // ---- 3. Artwork API Endpoints ----
+    // ---- 3. Automation Schema & Channel Controls ----
+    const DEFAULT_AUTOMATION_CHANNELS = [
+      { channel_key: 'instagram', label: 'Instagram', kind: 'social', image_variant: 'stylized', adapter: 'meta_ig', implemented: 1, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 1 },
+      { channel_key: 'facebook', label: 'Facebook', kind: 'social', image_variant: 'stylized', adapter: 'meta_fb', implemented: 1, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 2 },
+      { channel_key: 'aukro', label: 'Aukro', kind: 'marketplace', image_variant: 'clean', adapter: 'aukro', implemented: 1, enabled: 0, auto_publish: 0, config_json: '{}', sort_order: 3 },
+      { channel_key: 'sashe', label: 'Sashe.sk', kind: 'marketplace', image_variant: 'clean', adapter: 'sashe', implemented: 1, enabled: 0, auto_publish: 0, config_json: '{}', sort_order: 4 },
+      { channel_key: 'pinterest', label: 'Pinterest', kind: 'social', image_variant: 'stylized', adapter: 'pinterest', implemented: 0, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 5 },
+      { channel_key: 'tiktok', label: 'TikTok', kind: 'social', image_variant: 'stylized', adapter: 'tiktok', implemented: 0, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 6 },
+      { channel_key: 'threads', label: 'Threads', kind: 'social', image_variant: 'stylized', adapter: 'threads', implemented: 0, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 7 },
+      { channel_key: 'x', label: 'X (Twitter)', kind: 'social', image_variant: 'stylized', adapter: 'x', implemented: 0, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 8 },
+      { channel_key: 'etsy', label: 'Etsy', kind: 'marketplace', image_variant: 'clean', adapter: 'etsy', implemented: 0, enabled: 0, auto_publish: 0, config_json: '{}', sort_order: 9 },
+    ];
+
+    const parseJsonSafe = (str, fallback) => {
+      if (!str || typeof str !== 'string') return fallback;
+      try {
+        const parsed = JSON.parse(str);
+        return parsed && typeof parsed === 'object' ? parsed : fallback;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const toAbsoluteUrl = (origin, relOrAbs) => {
+      if (!relOrAbs || typeof relOrAbs !== 'string') return '';
+      if (/^https?:\/\//i.test(relOrAbs)) return relOrAbs;
+      return `${origin}/${relOrAbs.replace(/^\/+/, '')}`;
+    };
+
+    const ensureAutomationSchema = async () => {
+      if (automationSchemaReady) return;
+      const { results: cols } = await env.DB.prepare(`PRAGMA table_info(artworks)`).all();
+      const existingCols = new Set((cols || []).map((c) => c.name));
+      const alterQueries = [];
+      if (!existingCols.has('price_eur')) alterQueries.push(`ALTER TABLE artworks ADD COLUMN price_eur REAL`);
+      if (!existingCols.has('social_image_url')) alterQueries.push(`ALTER TABLE artworks ADD COLUMN social_image_url TEXT DEFAULT ''`);
+      if (!existingCols.has('publish_status_json')) alterQueries.push(`ALTER TABLE artworks ADD COLUMN publish_status_json TEXT DEFAULT '{}'`);
+      if (!existingCols.has('publish_channels_json')) alterQueries.push(`ALTER TABLE artworks ADD COLUMN publish_channels_json TEXT DEFAULT '{}'`);
+
+      for (const q of alterQueries) {
+        try {
+          await env.DB.prepare(q).run();
+        } catch (err) {
+          if (!/duplicate column/i.test(String(err && err.message))) throw err;
+        }
+      }
+
+      await env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS automation_channels (
+          channel_key TEXT PRIMARY KEY,
+          label TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          image_variant TEXT NOT NULL DEFAULT 'stylized',
+          adapter TEXT NOT NULL,
+          implemented INTEGER DEFAULT 0,
+          enabled INTEGER DEFAULT 0,
+          auto_publish INTEGER DEFAULT 0,
+          config_json TEXT DEFAULT '{}',
+          sort_order INTEGER DEFAULT 0,
+          updated_at TEXT DEFAULT ''
+        )
+      `).run();
+
+      const seedStmts = DEFAULT_AUTOMATION_CHANNELS.map((ch) =>
+        env.DB.prepare(`
+          INSERT OR IGNORE INTO automation_channels
+            (channel_key, label, kind, image_variant, adapter, implemented, enabled, auto_publish, config_json, sort_order, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          ch.channel_key,
+          ch.label,
+          ch.kind,
+          ch.image_variant,
+          ch.adapter,
+          ch.implemented,
+          ch.enabled,
+          ch.auto_publish,
+          ch.config_json,
+          ch.sort_order,
+          ''
+        )
+      );
+      if (seedStmts.length > 0) {
+        await env.DB.batch(seedStmts);
+      }
+      automationSchemaReady = true;
+    };
+
+    const serializeChannelRow = (r) => ({
+      key: r.channel_key,
+      label: r.label,
+      kind: r.kind,
+      imageVariant: r.image_variant || 'stylized',
+      adapter: r.adapter,
+      implemented: r.implemented === 1,
+      enabled: r.enabled === 1,
+      autoPublish: r.auto_publish === 1,
+      config: parseJsonSafe(r.config_json, {}),
+      sortOrder: Number(r.sort_order) || 0,
+      updatedAt: r.updated_at || '',
+    });
+
+    const serializeArtworkRow = (art, imgMap) => {
+      const detailImgs = imgMap[art.id] || (art.cover_image ? [art.cover_image] : []);
+      const parsedDims = parseDimPair(art.dimensions);
+      const widthCm = Number(art.width_cm) > 0 ? Number(art.width_cm) : parsedDims.widthCm;
+      const heightCm = Number(art.height_cm) > 0 ? Number(art.height_cm) : parsedDims.heightCm;
+      const depthCm = Number(art.depth_cm) > 0 ? Number(art.depth_cm) : 4;
+      const rawPrice = art.price_eur !== null && art.price_eur !== undefined && art.price_eur !== ''
+        ? Number(art.price_eur)
+        : null;
+      return {
+        id: art.id,
+        folder: art.folder_name,
+        title: art.title,
+        date: art.date_created,
+        year: art.year,
+        technique: art.technique,
+        medium: art.medium,
+        dimensions: art.dimensions || `${widthCm} × ${heightCm} cm`,
+        widthCm,
+        heightCm,
+        depthCm,
+        priceEur: Number.isFinite(rawPrice) ? rawPrice : null,
+        instagramUrl: art.instagram_url || '',
+        rawImage: art.raw_image || '',
+        socialImageUrl: art.social_image_url || '',
+        publishStatus: parseJsonSafe(art.publish_status_json, {}),
+        publishChannels: parseJsonSafe(art.publish_channels_json, {}),
+        sortOrder: Number(art.sort_order) || 0,
+        status: art.status,
+        photoCount: art.photo_count || detailImgs.length,
+        coverImage: art.cover_image || (detailImgs.length > 0 ? detailImgs[0] : ''),
+        detailImages: detailImgs,
+        description: art.description || '',
+      };
+    };
+
+    const getPendingChannelsForArtwork = (artObj, channels, targetChannelKey = '') => {
+      const candidates = targetChannelKey
+        ? channels.filter((c) => c.key === targetChannelKey)
+        : channels.filter((c) => c.enabled);
+      return candidates
+        .filter((ch) => {
+          if (artObj.publishChannels && artObj.publishChannels[ch.key] === false) return false;
+          const st = artObj.publishStatus && artObj.publishStatus[ch.key] && artObj.publishStatus[ch.key].status;
+          return st !== 'published' && st !== 'drafted';
+        })
+        .map((ch) => ch.key);
+    };
+
+    // GET /api/automation/channels (Authenticated: Bearer key or Admin session)
+    if (pathname === '/api/automation/channels' && request.method === 'GET') {
+      try {
+        const auth = await isAuthorizedForAutomation(request);
+        if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
+        await ensureAutomationSchema();
+
+        const [{ results: chRows }, { results: artRows }] = await Promise.all([
+          env.DB.prepare(`SELECT * FROM automation_channels ORDER BY sort_order ASC, channel_key ASC`).all(),
+          env.DB.prepare(`SELECT id, status, social_image_url, publish_status_json, publish_channels_json FROM artworks`).all(),
+        ]);
+
+        const channels = (chRows || []).map(serializeChannelRow);
+        const enabledCount = channels.filter((c) => c.enabled).length;
+        let pendingArtworksCount = 0;
+
+        for (const row of artRows || []) {
+          const fakeArt = {
+            id: row.id,
+            publishStatus: parseJsonSafe(row.publish_status_json, {}),
+            publishChannels: parseJsonSafe(row.publish_channels_json, {}),
+          };
+          const pendingKeys = getPendingChannelsForArtwork(fakeArt, channels);
+          if (pendingKeys.length > 0) pendingArtworksCount++;
+        }
+
+        return jsonResponse({
+          channels,
+          summary: {
+            enabledCount,
+            totalChannels: channels.length,
+            pendingArtworksCount,
+          },
+        });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // PUT /api/automation/channels/:key (Authenticated: Bearer key or Admin session)
+    if (pathname.startsWith('/api/automation/channels/') && request.method === 'PUT') {
+      try {
+        const auth = await isAuthorizedForAutomation(request);
+        if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
+        await ensureAutomationSchema();
+
+        const key = decodeURIComponent(pathname.substring('/api/automation/channels/'.length)).trim();
+        const existing = await env.DB.prepare(`SELECT * FROM automation_channels WHERE channel_key = ?`).bind(key).first();
+        if (!existing) {
+          return jsonResponse({ error: 'Neznámy kanál automatizácie.' }, 404);
+        }
+
+        const body = await request.json();
+        const nextEnabled = body.enabled !== undefined ? (body.enabled ? 1 : 0) : existing.enabled;
+        const nextAutoPublish = body.autoPublish !== undefined ? (body.autoPublish ? 1 : 0) : existing.auto_publish;
+        const nextConfigJson = body.config !== undefined && typeof body.config === 'object' && body.config !== null
+          ? JSON.stringify(body.config)
+          : (existing.config_json || '{}');
+        const nowIso = new Date().toISOString();
+
+        await env.DB.prepare(`
+          UPDATE automation_channels
+          SET enabled = ?, auto_publish = ?, config_json = ?, updated_at = ?
+          WHERE channel_key = ?
+        `)
+          .bind(nextEnabled, nextAutoPublish, nextConfigJson, nowIso, key)
+          .run();
+
+        const updated = await env.DB.prepare(`SELECT * FROM automation_channels WHERE channel_key = ?`).bind(key).first();
+        return jsonResponse({ success: true, channel: serializeChannelRow(updated) });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // GET /api/automation/pending (Authenticated: Bearer key or Admin session)
+    if (pathname === '/api/automation/pending' && request.method === 'GET') {
+      try {
+        const auth = await isAuthorizedForAutomation(request);
+        if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
+        await ensureAutomationSchema();
+
+        const channelParam = (url.searchParams.get('channel') || '').trim();
+        const artworkIdParam = (url.searchParams.get('artworkId') || '').trim();
+        const includeAll = url.searchParams.get('includeAll') === '1';
+
+        const [{ results: chRows }, { results: artRows }, { results: imgRows }] = await Promise.all([
+          env.DB.prepare(`SELECT * FROM automation_channels ORDER BY sort_order ASC, channel_key ASC`).all(),
+          env.DB.prepare(`SELECT * FROM artworks ORDER BY sort_order ASC, date_created DESC, id DESC`).all(),
+          env.DB.prepare(`SELECT artwork_id, image_url FROM artwork_images ORDER BY sort_order ASC`).all(),
+        ]);
+
+        const channels = (chRows || []).map(serializeChannelRow);
+        const imgMap = {};
+        for (const img of imgRows || []) {
+          if (!imgMap[img.artwork_id]) imgMap[img.artwork_id] = [];
+          imgMap[img.artwork_id].push(img.image_url);
+        }
+
+        const enabledChannels = channels.filter((c) => c.enabled);
+        const needsStylizedAny = enabledChannels.some((c) => c.imageVariant === 'stylized')
+          || (channelParam && channels.some((c) => c.key === channelParam && c.imageVariant === 'stylized'));
+
+        const artworksPayload = [];
+        for (const row of artRows || []) {
+          if (artworkIdParam && row.id !== artworkIdParam) continue;
+          const art = serializeArtworkRow(row, imgMap);
+          const pendingChannels = getPendingChannelsForArtwork(art, channels, channelParam);
+          const missingSocialImage = !art.socialImageUrl;
+
+          const shouldInclude = includeAll
+            || (artworkIdParam && (pendingChannels.length > 0 || missingSocialImage))
+            || pendingChannels.length > 0
+            || (needsStylizedAny && missingSocialImage);
+
+          if (!shouldInclude) continue;
+
+          artworksPayload.push({
+            ...art,
+            cleanImageUrl: toAbsoluteUrl(url.origin, art.coverImage),
+            socialImagePublicUrl: toAbsoluteUrl(url.origin, art.socialImageUrl),
+            detailImageUrls: (art.detailImages || []).map((u) => toAbsoluteUrl(url.origin, u)),
+            pendingChannels,
+          });
+        }
+
+        return jsonResponse({
+          baseUrl: url.origin,
+          channels,
+          enabledChannelKeys: enabledChannels.map((c) => c.key),
+          artworks: artworksPayload,
+        });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // POST /api/automation/upload-social-image (Authenticated: Bearer key or Admin session)
+    if (pathname === '/api/automation/upload-social-image' && request.method === 'POST') {
+      try {
+        const auth = await isAuthorizedForAutomation(request);
+        if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
+        await ensureAutomationSchema();
+
+        const body = await request.json();
+        const artworkId = (body && body.artworkId ? String(body.artworkId) : '').trim();
+        const imageDataUrl = body && body.imageDataUrl;
+        const thumbDataUrl = body && body.thumbDataUrl;
+
+        if (!artworkId || typeof imageDataUrl !== 'string' || !imageDataUrl.startsWith('data:image/')) {
+          return jsonResponse({ error: 'artworkId a platný imageDataUrl sú povinné.' }, 400);
+        }
+
+        const existing = await env.DB.prepare(
+          `SELECT id, folder_name, social_image_url FROM artworks WHERE id = ?`
+        ).bind(artworkId).first();
+        if (!existing) {
+          return jsonResponse({ error: 'Dielo neexistuje.' }, 404);
+        }
+
+        const folder = existing.folder_name || artworkId.replace(/^art-/, '');
+        const uploadedUrl = await uploadDataImageWithThumb(imageDataUrl, thumbDataUrl, folder, 'social_4x5');
+        if (!uploadedUrl) {
+          return jsonResponse({ error: 'Nepodarilo sa spracovať obrázok.' }, 400);
+        }
+
+        const prevSocialUrl = existing.social_image_url || '';
+        await env.DB.prepare(`UPDATE artworks SET social_image_url = ? WHERE id = ?`)
+          .bind(uploadedUrl, artworkId)
+          .run();
+
+        if (prevSocialUrl && prevSocialUrl !== uploadedUrl) {
+          await deleteUnusedR2Images([prevSocialUrl]);
+        }
+
+        return jsonResponse({
+          success: true,
+          artworkId,
+          socialImageUrl: uploadedUrl,
+          publicUrl: toAbsoluteUrl(url.origin, uploadedUrl),
+        });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // PATCH /api/automation/status/:id (Authenticated: Bearer key or Admin session)
+    if (pathname.startsWith('/api/automation/status/') && request.method === 'PATCH') {
+      try {
+        const auth = await isAuthorizedForAutomation(request);
+        if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
+        await ensureAutomationSchema();
+
+        const id = decodeURIComponent(pathname.substring('/api/automation/status/'.length));
+        const existing = await env.DB.prepare(
+          `SELECT id, publish_status_json, instagram_url FROM artworks WHERE id = ?`
+        ).bind(id).first();
+        if (!existing) {
+          return jsonResponse({ error: 'Dielo neexistuje.' }, 404);
+        }
+
+        const body = await request.json();
+        const currentStatus = parseJsonSafe(existing.publish_status_json, {});
+        const nowIso = new Date().toISOString();
+        let nextInstagramUrl = null;
+
+        const applyOne = (chKey, entry) => {
+          if (!chKey || !entry || typeof entry !== 'object') return;
+          const prev = currentStatus[chKey] && typeof currentStatus[chKey] === 'object' ? currentStatus[chKey] : {};
+          const nextObj = {
+            status: entry.status || prev.status || 'pending',
+            updatedAt: nowIso,
+          };
+          if (entry.externalId !== undefined) nextObj.externalId = entry.externalId;
+          else if (prev.externalId !== undefined && entry.status !== 'pending') nextObj.externalId = prev.externalId;
+          if (entry.url !== undefined) nextObj.url = entry.url;
+          else if (prev.url !== undefined && entry.status !== 'pending') nextObj.url = prev.url;
+          if (entry.error !== undefined) nextObj.error = entry.error;
+          if (entry.note !== undefined) nextObj.note = entry.note;
+          currentStatus[chKey] = nextObj;
+
+          if (chKey === 'instagram' && entry.url && !existing.instagram_url) {
+            nextInstagramUrl = String(entry.url);
+          }
+        };
+
+        if (body.updates && typeof body.updates === 'object') {
+          Object.entries(body.updates).forEach(([k, v]) => applyOne(k, v));
+        } else if (body.channel) {
+          applyOne(String(body.channel), body);
+        } else {
+          return jsonResponse({ error: 'Chýba channel alebo updates.' }, 400);
+        }
+
+        if (nextInstagramUrl) {
+          await env.DB.prepare(
+            `UPDATE artworks SET publish_status_json = ?, instagram_url = ? WHERE id = ?`
+          ).bind(JSON.stringify(currentStatus), nextInstagramUrl, id).run();
+        } else {
+          await env.DB.prepare(
+            `UPDATE artworks SET publish_status_json = ? WHERE id = ?`
+          ).bind(JSON.stringify(currentStatus), id).run();
+        }
+
+        return jsonResponse({ success: true, id, publishStatus: currentStatus });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // ---- 4. Artwork API Endpoints ----
 
     // GET /api/artworks - Public catalog from D1
     if (pathname === '/api/artworks' && request.method === 'GET') {
       try {
+        await ensureAutomationSchema();
         const { results: artworks } = await env.DB.prepare(
           `SELECT * FROM artworks ORDER BY sort_order ASC, date_created DESC, id DESC`
         ).all();
@@ -670,34 +1099,7 @@ export default {
           imgMap[img.artwork_id].push(img.image_url);
         }
 
-        const data = artworks.map((art) => {
-          const detailImgs = imgMap[art.id] || (art.cover_image ? [art.cover_image] : []);
-          const parsedDims = parseDimPair(art.dimensions);
-          const widthCm = Number(art.width_cm) > 0 ? Number(art.width_cm) : parsedDims.widthCm;
-          const heightCm = Number(art.height_cm) > 0 ? Number(art.height_cm) : parsedDims.heightCm;
-          const depthCm = Number(art.depth_cm) > 0 ? Number(art.depth_cm) : 4;
-          return {
-            id: art.id,
-            folder: art.folder_name,
-            title: art.title,
-            date: art.date_created,
-            year: art.year,
-            technique: art.technique,
-            medium: art.medium,
-            dimensions: art.dimensions || `${widthCm} × ${heightCm} cm`,
-            widthCm,
-            heightCm,
-            depthCm,
-            instagramUrl: art.instagram_url || '',
-            rawImage: art.raw_image || '',
-            sortOrder: Number(art.sort_order) || 0,
-            status: art.status,
-            photoCount: art.photo_count || detailImgs.length,
-            coverImage: art.cover_image || (detailImgs.length > 0 ? detailImgs[0] : ''),
-            detailImages: detailImgs,
-            description: art.description || '',
-          };
-        });
+        const data = artworks.map((art) => serializeArtworkRow(art, imgMap));
 
         return jsonResponse(data);
       } catch (err) {
@@ -712,6 +1114,7 @@ export default {
         if (!session.authenticated) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
+        await ensureAutomationSchema();
 
         const body = await request.json();
         const {
@@ -726,6 +1129,8 @@ export default {
           widthCm,
           heightCm,
           depthCm = 4,
+          priceEur = null,
+          publishChannels = {},
           instagramUrl = '',
           rawImage = '',
           rawImageDataUrl = '',
@@ -748,6 +1153,12 @@ export default {
         const resolvedHeight = hasExplicitDims ? Number(heightCm) : parsedFromStr.heightCm;
         const resolvedDepth = Number(depthCm) > 0 ? Number(depthCm) : 4;
         const resolvedDimensions = dimensions || `${resolvedWidth} × ${resolvedHeight} cm`;
+        const resolvedPrice = priceEur !== null && priceEur !== undefined && priceEur !== '' && Number.isFinite(Number(priceEur)) && Number(priceEur) >= 0
+          ? Number(priceEur)
+          : null;
+        const resolvedPublishChannelsJson = publishChannels && typeof publishChannels === 'object'
+          ? JSON.stringify(publishChannels)
+          : '{}';
 
         const rawInputs = Array.isArray(detailImages) && detailImages.length > 0
           ? detailImages
@@ -781,8 +1192,8 @@ export default {
 
         await env.DB.prepare(`
           INSERT OR REPLACE INTO artworks
-            (id, folder_name, title, date_created, year, technique, medium, dimensions, width_cm, height_cm, depth_cm, instagram_url, raw_image, sort_order, status, description, cover_image, photo_count)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, folder_name, title, date_created, year, technique, medium, dimensions, width_cm, height_cm, depth_cm, price_eur, instagram_url, raw_image, social_image_url, publish_status_json, publish_channels_json, sort_order, status, description, cover_image, photo_count)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
           .bind(
             id,
@@ -796,8 +1207,12 @@ export default {
             resolvedWidth,
             resolvedHeight,
             resolvedDepth,
+            resolvedPrice,
             instagramUrl ?? '',
             resolvedRawImage,
+            '',
+            '{}',
+            resolvedPublishChannelsJson,
             Number.isFinite(Number(sortOrder)) ? Number(sortOrder) : 0,
             status ?? 'Available',
             description ?? '',
@@ -821,6 +1236,7 @@ export default {
         return jsonResponse({
           success: true,
           id,
+          priceEur: resolvedPrice,
           coverImage: resolvedCover,
           detailImages: resolvedImgs,
           rawImage: resolvedRawImage,
@@ -957,6 +1373,7 @@ export default {
         if (!session.authenticated) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
+        await ensureAutomationSchema();
 
         const id = decodeURIComponent(pathname.substring('/api/artworks/'.length));
         const body = await request.json();
@@ -968,6 +1385,8 @@ export default {
           widthCm,
           heightCm,
           depthCm,
+          priceEur,
+          publishChannels,
           instagramUrl,
           rawImage,
           rawImageDataUrl,
@@ -981,7 +1400,7 @@ export default {
         } = body;
 
         const existingArtRow = await env.DB.prepare(
-          `SELECT folder_name, raw_image FROM artworks WHERE id = ?`
+          `SELECT folder_name, raw_image, price_eur FROM artworks WHERE id = ?`
         )
           .bind(id)
           .first();
@@ -1012,6 +1431,19 @@ export default {
         const syncedDepth = Number(depthCm) > 0 ? Number(depthCm) : null;
         const syncedSortOrder = Number.isFinite(Number(sortOrder)) ? Number(sortOrder) : null;
 
+        let syncedPrice = existingArtRow ? existingArtRow.price_eur : null;
+        if (priceEur === null || priceEur === '') {
+          syncedPrice = null;
+        } else if (priceEur !== undefined) {
+          const parsedPrice = Number(priceEur);
+          if (Number.isFinite(parsedPrice) && parsedPrice >= 0) {
+            syncedPrice = parsedPrice;
+          }
+        }
+        const syncedPublishChannelsJson = publishChannels !== undefined && publishChannels !== null && typeof publishChannels === 'object'
+          ? JSON.stringify(publishChannels)
+          : null;
+
         await env.DB.prepare(`
           UPDATE artworks
           SET title = COALESCE(?, title),
@@ -1021,6 +1453,8 @@ export default {
               width_cm = COALESCE(?, width_cm),
               height_cm = COALESCE(?, height_cm),
               depth_cm = COALESCE(?, depth_cm),
+              price_eur = ?,
+              publish_channels_json = COALESCE(?, publish_channels_json),
               instagram_url = COALESCE(?, instagram_url),
               raw_image = COALESCE(?, raw_image),
               sort_order = COALESCE(?, sort_order),
@@ -1038,6 +1472,8 @@ export default {
             syncedWidth,
             syncedHeight,
             syncedDepth,
+            syncedPrice,
+            syncedPublishChannelsJson,
             instagramUrl ?? null,
             (existingArtRow && existingArtRow.raw_image && !uploadedRawUrl) ? null : (uploadedRawUrl ?? rawImage ?? null),
             syncedSortOrder,
@@ -1114,7 +1550,7 @@ export default {
           }
         }
 
-        const respPayload = { success: true, id, deletedFiles: deletedKeys.length };
+        const respPayload = { success: true, id, priceEur: syncedPrice, deletedFiles: deletedKeys.length };
         if (syncedWidth) respPayload.widthCm = syncedWidth;
         if (syncedHeight) respPayload.heightCm = syncedHeight;
         if (syncedDepth) respPayload.depthCm = syncedDepth;
@@ -1139,6 +1575,7 @@ export default {
         if (!session.authenticated) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
+        await ensureAutomationSchema();
 
         const id = decodeURIComponent(pathname.substring('/api/artworks/'.length));
 
@@ -1148,7 +1585,7 @@ export default {
           .bind(id)
           .all();
         const artRow = await env.DB.prepare(
-          `SELECT cover_image, raw_image FROM artworks WHERE id = ?`
+          `SELECT cover_image, raw_image, social_image_url FROM artworks WHERE id = ?`
         )
           .bind(id)
           .first();
@@ -1159,6 +1596,9 @@ export default {
         }
         if (artRow && artRow.raw_image) {
           candidateUrls.push(artRow.raw_image);
+        }
+        if (artRow && artRow.social_image_url) {
+          candidateUrls.push(artRow.social_image_url);
         }
 
         await env.DB.batch([

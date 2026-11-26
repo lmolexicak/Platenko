@@ -18,9 +18,11 @@ Zero-build architektúra: čistý HTML5 + CSS3 + Vanilla JS ES Modules (Three.js
 - `detail-modal.js` — detail diela, album fotiek, zdieľanie, priamy prechod do CMS (`/admin?edit={id}`)
 - `gallery-3d.js` — 3D White Cube virtuálna galéria (Shadow-Box plávajúce rámy s ceduľkami, prehľadný vstup do Sály 1, obvodová navigácia a plynulé prechody cez portály), Guided Tour, kolmý Zoom-to-Fill a 2D Hi-Res crossfade
 - `ar-viewer.js` — 3-úrovňový WebAR 1:1 náhľad na stene (Desktop QR, Android WebXR, iOS USDZ, Camera Fallback + kalibrácia ISO platobnou kartou `8.56 × 5.40 cm`, diptych/triptych)
-- `admin.html`, `admin.js`, `perspective-warp.js`, `cover-studio.js` — unifikované Admin CMS (drag-and-drop poradie diel `⋮⋮` + klikateľné číslo pozície `#N`, album grid, multi-upload, 90° rotácie, 4-bodový orez a 3D Cover Studio s 3× lupou a kolieskovým zoomom `1×–6×`, správca číselníkov `⚙️ Číselníky`)
+- `admin.html`, `admin.js`, `perspective-warp.js`, `cover-studio.js` — unifikované Admin CMS (drag-and-drop poradie diel `⋮⋮` + klikateľné číslo pozície `#N`, prepínače automatizácie pre každú sieť `🚀 Automatizácia`, cena € a stav publikovania diela, album grid, multi-upload, 90° rotácie, 4-bodový orez a 3D Cover Studio s 3× lupou a kolieskovým zoomom `1×–6×`, správca číselníkov `⚙️ Číselníky`)
 - `sorter.html` — hromadné triedenie poradia a zlučovanie albumov
-- `worker.js` — REST API (`/api/auth/*`, `/api/artworks/*`, `/api/lookups/*`), `/images/paintings/*` R2 proxy + automatické thumbnaily (`thumbs/...`)
+- `worker.js` — REST API (`/api/auth/*`, `/api/artworks/*`, `/api/lookups/*`, `/api/automation/*`), `/images/paintings/*` R2 proxy + automatické thumbnaily (`thumbs/...`)
+- `automation/` — lokálny Node.js CLI runner (`run.js`, `sharp` 4:5 stylizátor, `playwright` pre Sashe.sk, modulárne adaptéry v `publishers/`) napojený na `/api/automation/*` cez `AUTOMATION_API_KEY`
+- `md_specs/` — technické špecifikácie (`CORE_GALLERY_SPEC.md`, `WOW_FEATURES_SPEC.md`, `ART_AUTOMATION_SPEC.md`) vylúčené z verejného hostingu v `.assetsignore`
 
 ## 4. Pravidlá nasadzovania a verifikácie
 1. **Git & CI/CD:** Push na `main` automaticky nasadzuje na Cloudflare Workers. Vetvu `dev` drž vždy zosynchronizovanú s `main`.

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261126b">
+  <link rel="stylesheet" href="styles.css?v=20261126e">
 </head>
 <body>
 
@@ -23,6 +23,7 @@
       </a>
       <div class="nav-actions">
         <a href="index.html" class="theme-toggle-btn" style="text-decoration: none;">← Galéria</a>
+        <button type="button" id="adminAutomationBtn" class="theme-toggle-btn" style="display: none;" title="Automatizácia publikovania na sociálne siete a portály">🚀 <span>Automatizácia</span></button>
         <button type="button" id="adminLookupsBtn" class="theme-toggle-btn" style="display: none;" title="Spravovať číselníky (Techniky, Stavy, Médiá, Rozmery)">⚙️ <span>Číselníky</span></button>
         <a href="sorter.html" id="adminSorterLink" class="theme-toggle-btn" style="display: none; text-decoration: none;">📋 <span>Organizér</span></a>
         <button id="adminLogoutBtn" class="theme-toggle-btn" style="display: none; color: #ef4444;" title="Odhlásiť sa">🚪 <span>Odhlásiť</span></button>
@@ -192,12 +193,18 @@
             </div>
           </div>
 
-          <div>
-            <label class="edit-label" for="admMedium">Médium</label>
-            <select id="admMedium" class="edit-select">
-              <option value="Akryl na plátne">Akryl na plátne</option>
-              <option value="Akryl a zlatá fólia na plátne">Akryl a zlatá fólia na plátne</option>
-            </select>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+            <div>
+              <label class="edit-label" for="admMedium">Médium</label>
+              <select id="admMedium" class="edit-select">
+                <option value="Akryl na plátne">Akryl na plátne</option>
+                <option value="Akryl a zlatá fólia na plátne">Akryl a zlatá fólia na plátne</option>
+              </select>
+            </div>
+            <div>
+              <label class="edit-label" for="admPriceEur">Cena (€) <span style="font-weight:400;color:var(--text-muted);">(pre Aukro / Sashe)</span></label>
+              <input type="number" id="admPriceEur" class="edit-input" min="0" step="1" placeholder="napr. 180">
+            </div>
           </div>
 
           <div>
@@ -211,6 +218,22 @@
           <div>
             <label class="edit-label" for="admDescription">Kurátorský popis / príbeh diela</label>
             <textarea id="admDescription" class="edit-input" rows="4" placeholder="Stručný popis farieb, techniky alebo inšpirácie..."></textarea>
+          </div>
+
+          <!-- Per-Artwork Automation & Publish Status Panel -->
+          <div id="admPublishPanel" class="adm-publish-panel" style="display: none;">
+            <div class="adm-publish-head">
+              <span class="edit-label" style="margin: 0;">🚀 Stav automatizácie diela</span>
+              <button type="button" id="admOpenAutoFromPanelBtn" class="btn-secondary" style="padding: 4px 10px; font-size: 0.76rem;">⚙️ Nastaviť siete</button>
+            </div>
+            <div id="admSocialThumbWrap" class="adm-social-thumb-wrap" style="display: none;">
+              <img id="admSocialThumbImg" src="" alt="4:5 štylizovaný náhľad">
+              <div style="font-size: 0.78rem; color: var(--text-muted);">
+                <strong style="color: var(--text-main); display: block;">4:5 Štylizovaný obrázok</strong>
+                <span>Vygenerovaný pre sociálne siete</span>
+              </div>
+            </div>
+            <div id="admPublishStatusList" class="adm-publish-list"></div>
           </div>
 
           <div id="admStatusMsg" style="display: none;"></div>
@@ -407,8 +430,39 @@
     </div>
   </div>
 
-  <script src="perspective-warp.js?v=20261126a"></script>
-  <script src="cover-studio.js?v=20261126a"></script>
-  <script src="admin.js?v=20261126d"></script>
+  <!-- Automation Channels Modal (Per-Network ON/OFF Switches) -->
+  <div class="modal-overlay" id="automationModal" role="dialog" aria-modal="true" style="z-index: 335;">
+    <div class="edit-modal-box" style="max-width: 740px; max-height: 88vh; display: flex; flex-direction: column;">
+      <button class="modal-close-btn" id="automationCloseBtn" aria-label="Zavrieť">✕</button>
+      <div style="margin-bottom: 12px; padding-right: 40px;">
+        <h2 style="font-size: 1.3rem; margin: 0;">🚀 Automatizácia &amp; Publikovanie</h2>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin: 4px 0 0;">
+          Zapínaj a vypínaj cieľové siete pre automatické nahrávanie nových malieb. Prístupové kľúče ostávajú bezpečne v lokálnom <code>automation/.env</code> a Cloudflare Secrets.
+        </p>
+      </div>
+
+      <div class="adm-auto-cli-box">
+        <span id="admAutoSummary" style="font-weight: 600; color: var(--text-main);">Načítavam stav kanálov…</span>
+        <code>cd automation &amp;&amp; npm run publish-art</code>
+      </div>
+
+      <div id="admAutoStatusMsg" style="display: none; margin-bottom: 10px;"></div>
+
+      <div class="adm-auto-scroll">
+        <div>
+          <h3 class="adm-auto-section-title">📱 Sociálne siete (4:5 štylizovaná fotka s tieňom)</h3>
+          <div id="admAutoSocialList" class="adm-auto-list"></div>
+        </div>
+        <div>
+          <h3 class="adm-auto-section-title">🛍️ Predajné portály (čistá fotka diela)</h3>
+          <div id="admAutoMarketList" class="adm-auto-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="perspective-warp.js?v=20261126e"></script>
+  <script src="cover-studio.js?v=20261126e"></script>
+  <script src="admin.js?v=20261126e"></script>
 </body>
 </html>

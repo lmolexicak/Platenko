@@ -4,6 +4,8 @@ README.md
 AGENTS.md
 PROJECT_SPEC.md
 TEMPLATE_GUIDE.md
+md_specs/
+automation/
 *.ps1
 *.sql
 .env*

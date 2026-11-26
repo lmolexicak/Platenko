@@ -18,3 +18,9 @@ images/paintings/
 
 # Local database backups
 backups/
+
+# Automation runner secrets, sessions, dependencies & generated output
+automation/node_modules/
+automation/.env
+automation/.sessions/
+automation/output/

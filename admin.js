@@ -45,6 +45,9 @@
     ],
   };
   let activeLookupCategory = "technique";
+  let automationChannels = [];
+  let automationSummary = { enabledCount: 0, totalChannels: 0, pendingArtworksCount: 0 };
+  let editingPublishChannels = {};
 
   const dom = {};
   function cacheDom() {
@@ -57,8 +60,16 @@
 
     dom.main = document.getElementById("adminMain");
     dom.logoutBtn = document.getElementById("adminLogoutBtn");
+    dom.automationBtn = document.getElementById("adminAutomationBtn");
     dom.lookupsBtn = document.getElementById("adminLookupsBtn");
     dom.sorterLink = document.getElementById("adminSorterLink");
+
+    dom.automationModal = document.getElementById("automationModal");
+    dom.automationCloseBtn = document.getElementById("automationCloseBtn");
+    dom.autoSummary = document.getElementById("admAutoSummary");
+    dom.autoStatusMsg = document.getElementById("admAutoStatusMsg");
+    dom.autoSocialList = document.getElementById("admAutoSocialList");
+    dom.autoMarketList = document.getElementById("admAutoMarketList");
 
     dom.lookupsModal = document.getElementById("lookupsModal");
     dom.lookupsCloseBtn = document.getElementById("lookupsCloseBtn");
@@ -110,9 +121,15 @@
     dom.technique = document.getElementById("admTechnique");
     dom.status = document.getElementById("admStatus");
     dom.medium = document.getElementById("admMedium");
+    dom.priceEur = document.getElementById("admPriceEur");
     dom.instagramUrl = document.getElementById("admInstagramUrl");
     dom.instaTestLink = document.getElementById("admInstaTestLink");
     dom.description = document.getElementById("admDescription");
+    dom.publishPanel = document.getElementById("admPublishPanel");
+    dom.openAutoFromPanelBtn = document.getElementById("admOpenAutoFromPanelBtn");
+    dom.socialThumbWrap = document.getElementById("admSocialThumbWrap");
+    dom.socialThumbImg = document.getElementById("admSocialThumbImg");
+    dom.publishStatusList = document.getElementById("admPublishStatusList");
     dom.statusMsg = document.getElementById("admStatusMsg");
     dom.saveBtn = document.getElementById("admSaveBtn");
 
@@ -193,6 +210,7 @@
   function showAuthGate(errorText = "") {
     if (dom.main) dom.main.style.display = "none";
     if (dom.logoutBtn) dom.logoutBtn.style.display = "none";
+    if (dom.automationBtn) dom.automationBtn.style.display = "none";
     if (dom.lookupsBtn) dom.lookupsBtn.style.display = "none";
     if (dom.sorterLink) dom.sorterLink.style.display = "none";
     if (dom.authOverlay) dom.authOverlay.style.display = "flex";
@@ -213,6 +231,7 @@
     if (dom.authOverlay) dom.authOverlay.style.display = "none";
     if (dom.main) dom.main.style.display = "block";
     if (dom.logoutBtn) dom.logoutBtn.style.display = "inline-flex";
+    if (dom.automationBtn) dom.automationBtn.style.display = "inline-flex";
     if (dom.lookupsBtn) dom.lookupsBtn.style.display = "inline-flex";
     if (dom.sorterLink) dom.sorterLink.style.display = "inline-flex";
   }
@@ -456,6 +475,246 @@
     document.body.style.overflow = "";
   }
 
+  // ---- Automation Channels Modal (Per-Network ON/OFF Switches) & Artwork Publish Panel ----
+  function showAutoMsg(text, isErr = false) {
+    if (!dom.autoStatusMsg) return;
+    dom.autoStatusMsg.textContent = text;
+    dom.autoStatusMsg.className = isErr ? "settings-error" : "settings-success";
+    dom.autoStatusMsg.style.display = "block";
+    if (!isErr) {
+      setTimeout(() => {
+        if (dom.autoStatusMsg.textContent === text) dom.autoStatusMsg.style.display = "none";
+      }, 3000);
+    }
+  }
+
+  async function loadAutomationChannels() {
+    try {
+      const resp = await fetch("/api/automation/channels");
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      automationChannels = Array.isArray(data.channels) ? data.channels : [];
+      automationSummary = data.summary || { enabledCount: 0, totalChannels: automationChannels.length, pendingArtworksCount: 0 };
+      if (dom.automationModal && dom.automationModal.classList.contains("open")) {
+        renderAutomationModal();
+      }
+      if (editingId) {
+        const curArt = artworks.find((a) => a.id === editingId);
+        if (curArt) renderArtworkPublishPanel(curArt);
+      }
+    } catch (err) {
+      console.warn("Automation channels load failed:", err);
+    }
+  }
+
+  async function toggleAutomationChannel(key, patch, onRevert) {
+    try {
+      const resp = await fetch(`/api/automation/channels/${encodeURIComponent(key)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (resp.status === 401) {
+        closeAutomationModal();
+        showAuthGate("Prihlásenie vypršalo. Prihlás sa znova.");
+        return;
+      }
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.channel) {
+        throw new Error(data.error || ("HTTP " + resp.status));
+      }
+      const idx = automationChannels.findIndex((c) => c.key === key);
+      if (idx !== -1) automationChannels[idx] = data.channel;
+      await loadAutomationChannels();
+      const stateLabel = data.channel.enabled ? "zapnutá" : "vypnutá";
+      showAutoMsg(`✓ ${data.channel.label}: automatizácia ${stateLabel}.`);
+    } catch (err) {
+      if (typeof onRevert === "function") onRevert();
+      showAutoMsg("Chyba uloženia prepínača: " + err.message, true);
+    }
+  }
+
+  function renderAutomationChannelRow(ch) {
+    const row = document.createElement("div");
+    row.className = "adm-auto-row";
+    row.dataset.channelKey = ch.key;
+
+    const variantText = ch.imageVariant === "clean" ? "Čistá fotka" : "4:5 štylizovaná";
+    const statusPillClass = ch.implemented ? "ready" : "stub";
+    const statusPillText = ch.implemented ? "Pripravené" : "Predpríprava";
+
+    const draftControl = ch.kind === "marketplace"
+      ? `<label class="adm-auto-draft-label" title="Bezpečný režim: uloží iba koncept / neaktívnu ponuku">
+           <input type="checkbox" class="adm-auto-draft-chk" ${!ch.autoPublish ? "checked" : ""}>
+           Len koncept
+         </label>`
+      : "";
+
+    row.innerHTML = `
+      <div class="adm-auto-row-info">
+        <div class="adm-auto-row-title">
+          <span>${ch.label}</span>
+          <span class="adm-auto-pill ${statusPillClass}">${statusPillText}</span>
+          <span class="adm-auto-pill">${variantText}</span>
+        </div>
+      </div>
+      <div class="adm-auto-row-controls">
+        ${draftControl}
+        <label class="adm-switch" title="Zapnúť / vypnúť ${ch.label}">
+          <input type="checkbox" class="adm-auto-toggle-chk" ${ch.enabled ? "checked" : ""} aria-label="Prepínač automatizácie ${ch.label}">
+          <span class="adm-switch-track"></span>
+          <span class="adm-switch-thumb"></span>
+        </label>
+      </div>
+    `;
+
+    const toggleChk = row.querySelector(".adm-auto-toggle-chk");
+    toggleChk.addEventListener("change", () => {
+      const nextVal = toggleChk.checked;
+      toggleAutomationChannel(ch.key, { enabled: nextVal }, () => {
+        toggleChk.checked = !nextVal;
+      });
+    });
+
+    const draftChk = row.querySelector(".adm-auto-draft-chk");
+    if (draftChk) {
+      draftChk.addEventListener("change", () => {
+        const nextAutoPublish = !draftChk.checked;
+        toggleAutomationChannel(ch.key, { autoPublish: nextAutoPublish }, () => {
+          draftChk.checked = !draftChk.checked;
+        });
+      });
+    }
+
+    return row;
+  }
+
+  function renderAutomationModal() {
+    if (dom.autoSummary) {
+      const enabledCount = automationChannels.filter((c) => c.enabled).length;
+      const pendingCount = automationSummary.pendingArtworksCount || 0;
+      dom.autoSummary.textContent = `Aktívnych sietí: ${enabledCount} / ${automationChannels.length} · Čakajúcich diel: ${pendingCount}`;
+    }
+    if (dom.autoSocialList) {
+      dom.autoSocialList.innerHTML = "";
+      automationChannels
+        .filter((c) => c.kind === "social")
+        .forEach((ch) => dom.autoSocialList.appendChild(renderAutomationChannelRow(ch)));
+    }
+    if (dom.autoMarketList) {
+      dom.autoMarketList.innerHTML = "";
+      automationChannels
+        .filter((c) => c.kind !== "social")
+        .forEach((ch) => dom.autoMarketList.appendChild(renderAutomationChannelRow(ch)));
+    }
+  }
+
+  function openAutomationModal() {
+    if (!dom.automationModal) return;
+    if (dom.autoStatusMsg) dom.autoStatusMsg.style.display = "none";
+    renderAutomationModal();
+    dom.automationModal.classList.add("open");
+    document.body.style.overflow = "hidden";
+    loadAutomationChannels();
+  }
+
+  function closeAutomationModal() {
+    if (!dom.automationModal) return;
+    dom.automationModal.classList.remove("open");
+    document.body.style.overflow = "";
+  }
+
+  function renderArtworkPublishPanel(art) {
+    if (!dom.publishPanel || !dom.publishStatusList) return;
+    if (!art || !art.id) {
+      dom.publishPanel.style.display = "none";
+      return;
+    }
+    dom.publishPanel.style.display = "flex";
+
+    if (dom.socialThumbWrap && dom.socialThumbImg) {
+      if (art.socialImageUrl) {
+        dom.socialThumbImg.src = toThumbUrl(art.socialImageUrl);
+        dom.socialThumbWrap.style.display = "flex";
+      } else {
+        dom.socialThumbWrap.style.display = "none";
+      }
+    }
+
+    dom.publishStatusList.innerHTML = "";
+    const statusMap = art.publishStatus || {};
+    const channelsToShow = automationChannels.length > 0
+      ? automationChannels
+      : [
+          { key: "instagram", label: "Instagram", enabled: false },
+          { key: "facebook", label: "Facebook", enabled: false },
+          { key: "aukro", label: "Aukro", enabled: false },
+          { key: "sashe", label: "Sashe.sk", enabled: false },
+        ];
+
+    channelsToShow.forEach((ch) => {
+      const entry = statusMap[ch.key] || {};
+      const st = entry.status || "pending";
+      if (!ch.enabled && st === "pending" && editingPublishChannels[ch.key] === undefined) {
+        return;
+      }
+
+      const chip = document.createElement("div");
+      chip.className = "adm-pub-chip";
+      const isIncluded = editingPublishChannels[ch.key] !== false;
+      const stateLabels = {
+        published: "Publikované",
+        drafted: "Koncept",
+        error: "Chyba",
+        pending: ch.enabled ? "Čaká" : "Vypnuté",
+      };
+
+      chip.innerHTML = `
+        <label class="adm-pub-chip-left" title="Zahrnúť toto dielo pre ${ch.label}">
+          <input type="checkbox" class="adm-art-ch-chk" ${isIncluded ? "checked" : ""}>
+          <span class="adm-pub-chip-name">${ch.label}</span>
+        </label>
+        <div style="display:inline-flex;align-items:center;gap:4px;">
+          <span class="adm-pub-state ${st}" title="${entry.error || entry.url || ""}">${stateLabels[st] || st}</span>
+          ${(st === "error" || st === "published" || st === "drafted")
+            ? `<button type="button" class="adm-icon-btn adm-pub-reset" style="width:22px;height:22px;font-size:0.7rem;" title="Resetovať na čakajúce">↺</button>`
+            : ""}
+        </div>
+      `;
+
+      const chk = chip.querySelector(".adm-art-ch-chk");
+      chk.addEventListener("change", () => {
+        editingPublishChannels[ch.key] = chk.checked;
+      });
+
+      const resetBtn = chip.querySelector(".adm-pub-reset");
+      if (resetBtn) {
+        resetBtn.addEventListener("click", async () => {
+          try {
+            const resp = await fetch(`/api/automation/status/${encodeURIComponent(art.id)}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ channel: ch.key, status: "pending", error: "", url: "", externalId: "" }),
+            });
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            const data = await resp.json();
+            art.publishStatus = data.publishStatus || {};
+            renderArtworkPublishPanel(art);
+            loadAutomationChannels();
+          } catch (err) {
+            showStatusMsg("Chyba resetu stavu publikovania: " + err.message, true);
+          }
+        });
+      }
+
+      dom.publishStatusList.appendChild(chip);
+    });
+
+    if (dom.publishStatusList.children.length === 0) {
+      dom.publishStatusList.innerHTML = `<span style="font-size:0.76rem;color:var(--text-muted);grid-column:1/-1;">Žiadna sieť nie je zatiaľ zapnutá — zapni požadované kanály cez „⚙️ Nastaviť siete“.</span>`;
+    }
+  }
+
   // ---- Miniature 220 cm Sofa Scale Preview ----
   function updateSofaPreview() {
     if (!dom.sofaPreview || !dom.previewPaint || !dom.previewSofa) return;
@@ -566,6 +825,7 @@
   // ---- Form Reset / Populate ----
   function resetForm() {
     editingId = null;
+    editingPublishChannels = {};
     albumPhotos = [];
     pendingThumbMap = {};
     pendingRawDataUrl = null;
@@ -576,6 +836,7 @@
     if (dom.width) dom.width.value = "50";
     if (dom.height) dom.height.value = "70";
     if (dom.depth) dom.depth.value = "4";
+    if (dom.priceEur) dom.priceEur.value = "";
     const pickSafeOption = (sel, preferred) => {
       if (!sel) return;
       if (Array.from(sel.options).some((o) => o.value === preferred)) {
@@ -590,6 +851,7 @@
     if (dom.date) dom.date.value = new Date().toISOString().slice(0, 10);
     if (dom.instaTestLink) dom.instaTestLink.href = "https://www.instagram.com/platenko.akryl";
     if (dom.statusMsg) dom.statusMsg.style.display = "none";
+    if (dom.publishPanel) dom.publishPanel.style.display = "none";
 
     refreshCoverAndAlbumUI();
     updateSofaPreview();
@@ -600,6 +862,7 @@
     if (!art) return;
     const options = opts || {};
     editingId = art.id;
+    editingPublishChannels = { ...(art.publishChannels || {}) };
     pendingThumbMap = {};
     pendingRawDataUrl = null;
     currentRawUrl = art.rawImage || "";
@@ -616,6 +879,9 @@
     dom.width.value = art.widthCm || 50;
     dom.height.value = art.heightCm || 70;
     dom.depth.value = art.depthCm || 4;
+    if (dom.priceEur) {
+      dom.priceEur.value = (art.priceEur !== null && art.priceEur !== undefined && art.priceEur !== "") ? art.priceEur : "";
+    }
     dom.instagramUrl.value = art.instagramUrl || "";
     dom.description.value = art.description || "";
     if (dom.instaTestLink) {
@@ -624,6 +890,7 @@
 
     refreshCoverAndAlbumUI();
     updateSofaPreview();
+    renderArtworkPublishPanel(art);
     renderInventory();
     if (options.scrollTop !== false) {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1124,6 +1391,10 @@
         filteredThumbs[pendingRawDataUrl] = pendingThumbMap[pendingRawDataUrl];
       }
 
+      const rawPriceStr = dom.priceEur ? dom.priceEur.value.trim() : "";
+      const parsedPrice = rawPriceStr === "" ? null : Number(rawPriceStr);
+      const priceEur = (parsedPrice !== null && Number.isFinite(parsedPrice) && parsedPrice >= 0) ? parsedPrice : null;
+
       let savedId = editingId;
       let successMsg = "✓ Zmeny uložené do D1 a R2!";
 
@@ -1139,6 +1410,8 @@
           widthCm: w,
           heightCm: h,
           depthCm: d,
+          priceEur,
+          publishChannels: { ...editingPublishChannels },
           instagramUrl: dom.instagramUrl.value.trim(),
           description: dom.description.value.trim(),
           detailImages: [...albumPhotos],
@@ -1180,6 +1453,8 @@
           widthCm: w,
           heightCm: h,
           depthCm: d,
+          priceEur,
+          publishChannels: {},
           instagramUrl: dom.instagramUrl.value.trim(),
           description: dom.description.value.trim(),
           detailImages: [...albumPhotos],
@@ -1254,6 +1529,7 @@
           hideAuthGate();
           resetForm();
           loadLookups().then(() => loadArtworks());
+          loadAutomationChannels();
         } catch (err) {
           if (dom.authError) {
             dom.authError.textContent = err.message || "Chyba prihlásenia.";
@@ -1355,6 +1631,15 @@
       });
     }
 
+    if (dom.automationBtn) dom.automationBtn.addEventListener("click", openAutomationModal);
+    if (dom.openAutoFromPanelBtn) dom.openAutoFromPanelBtn.addEventListener("click", openAutomationModal);
+    if (dom.automationCloseBtn) dom.automationCloseBtn.addEventListener("click", closeAutomationModal);
+    if (dom.automationModal) {
+      dom.automationModal.addEventListener("click", (e) => {
+        if (e.target === dom.automationModal) closeAutomationModal();
+      });
+    }
+
     if (dom.lookupsBtn) dom.lookupsBtn.addEventListener("click", openLookupsModal);
     if (dom.lookupsCloseBtn) dom.lookupsCloseBtn.addEventListener("click", closeLookupsModal);
     if (dom.lookupsModal) {
@@ -1407,6 +1692,7 @@
         hideAuthGate();
         resetForm();
         await loadLookups();
+        loadAutomationChannels();
         loadArtworks();
       } else {
         showAuthGate();

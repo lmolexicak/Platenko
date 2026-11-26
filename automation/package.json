@@ -1,0 +1,17 @@
+{
+  "name": "platenko-automation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local multi-channel publishing & 4:5 image stylizer runner for Platenko Akryl",
+  "scripts": {
+    "publish-art": "node run.js",
+    "stylize": "node run.js --stylize-only",
+    "status": "node run.js --dry-run"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "playwright": "^1.49.1",
+    "sharp": "^0.33.5"
+  }
+}
