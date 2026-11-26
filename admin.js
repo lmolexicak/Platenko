@@ -765,8 +765,6 @@
           <select class="status-select adm-row-status"></select>
         </td>
         <td style="text-align:right;white-space:nowrap;">
-          <button type="button" class="adm-icon-btn adm-up-btn" title="Posunúť vyššie" ${isSearching ? "disabled" : ""}>↑</button>
-          <button type="button" class="adm-icon-btn adm-down-btn" title="Posunúť nižšie" ${isSearching ? "disabled" : ""}>↓</button>
           <button type="button" class="adm-icon-btn adm-crop-btn" title="4-bodový orez (vytvorí kópiu)">📐</button>
           <button type="button" class="adm-icon-btn adm-edit-btn" title="Upraviť">✏️</button>
           <button type="button" class="adm-icon-btn adm-del-btn" title="Vymazať" style="color:#ef4444;">🗑️</button>
@@ -790,8 +788,6 @@
         posBtn.addEventListener("click", () => openInlinePositionEditor(tr, art, globalIdx));
       }
 
-      tr.querySelector(".adm-up-btn").addEventListener("click", () => moveArtworkOrder(art.id, -1));
-      tr.querySelector(".adm-down-btn").addEventListener("click", () => moveArtworkOrder(art.id, 1));
       tr.querySelector(".adm-crop-btn").addEventListener("click", () => {
         loadArtworkIntoForm(art);
         const src = art.rawImage || art.coverImage;
@@ -1075,14 +1071,6 @@
     } catch (err) {
       showStatusMsg("Nepodarilo sa uložiť poradie: " + err.message, true);
     }
-  }
-
-  async function moveArtworkOrder(id, delta) {
-    const idx = artworks.findIndex((a) => a.id === id);
-    if (idx === -1) return;
-    const targetIdx = idx + delta;
-    if (targetIdx < 0 || targetIdx >= artworks.length) return;
-    await reorderArtworkToIndex(id, targetIdx);
   }
 
   async function deleteArtwork(art) {
