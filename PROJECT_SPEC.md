@@ -38,12 +38,12 @@ Architektúra je navrhnutá pre vizuálne orientované portfóliá a katalógy f
 - `styles.css` — kompletný dizajnový systém (Light/Dark CSS premenné, 2-riadkový mobilný header, Justified riadky galérie, modály, Admin CMS štýly)
 - `app.js` — načítanie `/api/artworks` a `/api/lookups`, dynamický Justified Equal-Height 2D grid, živé vyhľadávanie, dynamické filtre, správa URL parametrov (deep-linking)
 - `detail-modal.js` — detail diela (viac fotiek v albume, metadata, `Zdieľať`, priamy prechod `/admin?edit={id}` pre prihláseného správcu)
-- `gallery-3d.js` — multi-room 3D virtuálna galéria, mikro-cementová podlaha, 3500K osvetlenie, Guided Tour, kolmý Zoom-to-Fill a 2D Hi-Res crossfade
+- `gallery-3d.js` — multi-room 3D virtuálna galéria (Shadow-Box plávajúce rámy s ceduľkami, prehľadný vstup do Sály 1, obvodová navigácia a prechody portálmi), mikro-cementová podlaha, 3500K osvetlenie, Guided Tour, kolmý Zoom-to-Fill a 2D Hi-Res crossfade
 - `ar-viewer.js` — 3-úrovňový 1:1 WebAR náhľad na stene (Desktop QR, Android WebXR, iOS USDZ, Camera Fallback + kalibrácia ISO platobnou kartou, diptych/triptych drawer)
 - `artworks.js` — historický statický fallback / export dát
 
 ### Admin CMS & Kurátorské nástroje
-- `admin.html` & `admin.js` — unifikované Admin CMS (login brána, zoznam diel so zvýraznením aktívneho riadku, Album Photo Grid, multi-photo upload, 90° rotácie, prepojenie na orez a 3D Studio, zmena hesla, správa číselníkov)
+- `admin.html` & `admin.js` — unifikované Admin CMS (login brána, zoznam diel so zvýraznením aktívneho riadku, drag-and-drop zmena poradia `⋮⋮` s auto-scrollom a priamy inline skok na číslo pozície `#N`, Album Photo Grid, multi-photo upload, 90° rotácie, prepojenie na orez a 3D Studio, zmena hesla, správa číselníkov)
 - `perspective-warp.js` — interaktívny 4-bodový perspektívny výrez (projekčná homografia na `<canvas>`, 3× kruhová lupa, kolieskový zoom `1×–6×` na kurzor + pan, voľný alebo prehodený pomer strán)
 - `cover-studio.js` — štúdio 3D obálky s nakloneným plátnom a tieňom (vrátane 3× lupy a zoomu `1×–6×`)
 - `sorter.html` — vizuálny organizér poradia diel (`sort_order`) a hromadné zlučovanie albumov
@@ -152,9 +152,11 @@ Auto-bootstrapovaná priamo vo `worker.js` (`ensureLookupsReady`), naplnená pri
 - Prihlásený správca vidí priamo v detaile akciu na otvorenie diela v CMS (`/admin.html?edit={id}`).
 
 ### 6.3 3D Virtuálna galéria & Guided Tour (`gallery-3d.js`)
-- Viacmiestnostný **White Cube** priestor (`#F7F7F5`), mikro-cementová podlaha, 3500K múzejné reflektory.
+- Viacmiestnostný **White Cube** priestor (matné teplobiele steny `#F3F2ED`, mikro-cementová podlaha, 3500K múzejné koľajnicové reflektory s rozsvietenou šošovkou a teplým svetelným kužeľom na stene).
+- **Shadow-Box (plávajúce) rámy & ceduľky:** Každé plátno je osadené v matnom tmavom plávajúcom ráme s tieňovou medzerou (`1,1 cm`), obdĺžnikovým vrhnutým tieňom na stene a drobnou klikateľnou galerijnou ceduľkou vedľa dolného rohu.
+- **Prehľadný vstup & obvodová navigácia:** Pri vstupe bez `?dielo=` stojí pozorovateľ v prehľade **Sály 1** s nápovedou a zakázanou ľavou šípkou `‹`; obrazy v sále nasledujú plynulú obvodovú trasu (1–5 po ľavej stene dnu, 6–10 späť po pravej stene), šípky `‹` / `›` na koncoch katalógu nepretekajú do iných sál a prechody medzi sálami vedú plynulo stredovou uličkou cez portály (`CatmullRomCurve3`).
 - **Výkon a stabilita pamäte:** lazy-loading okno `±18` textúr okolo aktuálnej pozície, `pixelRatio <= 2`, prísne volanie `.dispose()` na textúry, geometrie a materiály pri uvoľnení scény.
-- **Guided Tour + Plynulý prechod (Phase 4):** kompaktná Tour lišta (`Stop Tour + #idx/N`), kolmý pohyb kamery (Zoom-to-Fill) pred obraz a bezchybný 2D Hi-Res crossfade. Funkcia `syncEntryOrientationFromImage` automaticky zladí orientáciu 3D plátna so skutočným pomerom strán načítanej fotky.
+- **Guided Tour + Plynulý prechod (Phase 4):** kompaktná Tour lišta (`Stop Tour + #idx/N`), kolmý pohyb kamery (Zoom-to-Fill) pred obraz s ochranou proti projekcii spoza kamery a 2D Hi-Res crossfade. Funkcia `syncEntryOrientationFromImage` automaticky zladí orientáciu 3D plátna aj rámu so skutočným pomerom strán načítanej fotky.
 
 ### 6.4 3-úrovňový WebAR 1:1 náhľad (`ar-viewer.js`)
 - **Tier 1 (Desktop):** QR kód na rýchle otvorenie priamo v mobile (`/?dielo={id}&ar=1`).
@@ -165,7 +167,10 @@ Auto-bootstrapovaná priamo vo `worker.js` (`ensureLookupsReady`), naplnená pri
 
 ## 7. Unifikované `/admin` CMS & Práca s fotkami
 
-- **Jediné centrálne CMS (`/admin.html`):** prihlásenie cookie session, zoznam všetkých diel s automatickým zvýraznením a zachovaním aktívnej maľby po uložení (`.adm-table tr.is-active`).
+- **Jediné centrálne CMS (`/admin.html`):** prihlásenie cookie session, zoznam všetkých diel s automatickým zvýraznením a zachovaním aktívnej maľby po uložení (`.adm-table tr.is-active`). Karty v mriežke majú `min-width: 0; max-width: 100%` s interným horizontálnym scrollom tabuľky pre bezchybnú responzivitu aj na úzkom mobile (`390×844`).
+- **Rýchle usporiadanie katalógu (`#` stĺpec):**
+  - *Drag-and-drop (`⋮⋮`):* chytanie riadka za ľavý úchyt cez `Pointer Events` (myš aj dotyk) s plynulým auto-scrollom pri okraji zoznamu, vodiacou čiarou a plávajúcim náhľadom cieľovej pozície (`→ #N`).
+  - *Inline skok na pozíciu (`#N`):* kliknutím na číslo pozície sa otvorí číselný vstup na okamžitý presun diela na presnú pozíciu (funguje aj pri zapnutom vyhľadávaní), bez zastaraných manuálnych šípok `↑ / ↓`.
 - **Album Photo Grid:** nahrávanie viacerých fotiek naraz, výber titulnej fotky, zmena poradia, 90° rotácie priamo v prehliadači.
 - **Nedeštruktívny workflow:**
   - 4-bodový perspektívny výrez (`perspective-warp.js`) aj 3D Cover Studio (`cover-studio.js`) **nikdy neprepíšu originálnu fotku**. Vždy vytvoria novú kópiu (`cover_cropped_...` / `cover_3d_...`), pridajú ju do `artwork_images` a nastavia ako `cover_image`, zatiaľ čo originál ostáva bezpečne v albume a v `raw_image`.

@@ -16,9 +16,9 @@
 Zero-build architektúra: čistý HTML5 + CSS3 + Vanilla JS ES Modules (Three.js 0.170 cez CDN importmap) + Cloudflare Workers (`worker.js` ako API aj proxy pre R2).
 - `index.html`, `styles.css`, `app.js` — hlavná galéria: Justified Equal-Height 2D grid, vyhľadávanie, dynamické filtre z D1 číselníkov, Light/Dark téma, deep-linking (`/?dielo=`, `/?view=3d`, `/?ar=1`)
 - `detail-modal.js` — detail diela, album fotiek, zdieľanie, priamy prechod do CMS (`/admin?edit={id}`)
-- `gallery-3d.js` — 3D White Cube virtuálna galéria, Guided Tour, kolmý Zoom-to-Fill a 2D Hi-Res crossfade
+- `gallery-3d.js` — 3D White Cube virtuálna galéria (Shadow-Box plávajúce rámy s ceduľkami, prehľadný vstup do Sály 1, obvodová navigácia a plynulé prechody cez portály), Guided Tour, kolmý Zoom-to-Fill a 2D Hi-Res crossfade
 - `ar-viewer.js` — 3-úrovňový WebAR 1:1 náhľad na stene (Desktop QR, Android WebXR, iOS USDZ, Camera Fallback + kalibrácia ISO platobnou kartou `8.56 × 5.40 cm`, diptych/triptych)
-- `admin.html`, `admin.js`, `perspective-warp.js`, `cover-studio.js` — unifikované Admin CMS (album grid, multi-upload, 90° rotácie, 4-bodový orez a 3D Cover Studio s 3× lupou a kolieskovým zoomom `1×–6×`, správca číselníkov `⚙️ Číselníky`)
+- `admin.html`, `admin.js`, `perspective-warp.js`, `cover-studio.js` — unifikované Admin CMS (drag-and-drop poradie diel `⋮⋮` + klikateľné číslo pozície `#N`, album grid, multi-upload, 90° rotácie, 4-bodový orez a 3D Cover Studio s 3× lupou a kolieskovým zoomom `1×–6×`, správca číselníkov `⚙️ Číselníky`)
 - `sorter.html` — hromadné triedenie poradia a zlučovanie albumov
 - `worker.js` — REST API (`/api/auth/*`, `/api/artworks/*`, `/api/lookups/*`), `/images/paintings/*` R2 proxy + automatické thumbnaily (`thumbs/...`)
 
