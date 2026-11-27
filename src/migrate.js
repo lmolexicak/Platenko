@@ -366,12 +366,18 @@ const buildMigrationPlan = async (env) => {
           message: `Viacero rôznych R2 objektov (${sources.join(', ')}) sa mapuje na „${pair.newKey}“.`,
         });
       } else if (pair.targetExists && !pair.alreadyLogged) {
-        r2Collisions.push({
-          type: 'existing_r2_target',
-          oldKey: pair.oldKey,
-          newKey: pair.newKey,
-          message: `Cieľový R2 objekt „${pair.newKey}“ už existuje bez záznamu v ascii_migration_log.`,
-        });
+        const oldMeta = r2Map.get(pair.oldKey);
+        const newMeta = r2Map.get(pair.newKey);
+        const sameSize = Boolean(pair.sourceExists && oldMeta && newMeta && oldMeta.size === newMeta.size);
+        const targetReferencedInD1 = referencedR2Keys.has(pair.newKey);
+        if (!sameSize || targetReferencedInD1) {
+          r2Collisions.push({
+            type: 'existing_r2_target',
+            oldKey: pair.oldKey,
+            newKey: pair.newKey,
+            message: `Cieľový R2 objekt „${pair.newKey}“ už existuje bez záznamu v ascii_migration_log.`,
+          });
+        }
       }
     }
   }
@@ -537,6 +543,29 @@ const renderDryRunHtml = (report) => {
 
   ${collisionListHtml}
 
+  <div id="migControlPanel" style="background:#fff;border:1px solid #e4e4e7;border-radius:10px;padding:16px;margin:16px 0;">
+    <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;">
+      <div>
+        <strong style="display:block;font-size:15px;">Režim 2: Bezpečná migrácia (kopírovanie R2 + úprava D1, BEZ mazania starých R2)</strong>
+        <span style="font-size:12px;color:#52525b;">Spúšťa sa po malých dávkach (batchSize=2). Staré R2 súbory zostávajú nedotknuté až do samostatného Cleanup kroku.</span>
+      </div>
+      <button type="button" id="runMigrateBtn" class="btn" style="border:none;background:#16a34a;font-weight:600;${(s.collisionsTotal > 0 || s.artworksNeedingMigration === 0) ? 'opacity:0.5;cursor:not-allowed;' : 'cursor:pointer;'}" ${(s.collisionsTotal > 0 || s.artworksNeedingMigration === 0) ? 'disabled' : ''}>
+        🚀 Spustiť migráciu (Režim 2: kopírovanie R2 + D1, bez mazania)
+      </button>
+    </div>
+    <div id="migStatus" style="margin-top:10px;font-size:13px;color:#3f3f46;font-weight:500;">${s.artworksNeedingMigration === 0 ? 'Všetky diela už sú zmigrované.' : 'Pripravené na spustenie.'}</div>
+    <pre id="migFinalSummary" style="display:none;margin-top:10px;padding:12px;background:#f4f4f5;border-radius:8px;font-size:12px;overflow:auto;max-height:300px;"></pre>
+
+    <details id="cleanupDetails" style="margin-top:14px;padding-top:12px;border-top:1px solid #e4e4e7;">
+      <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#71717a;">🧹 Režim 3: Samostatný Cleanup starých R2 objektov (až po vizuálnej kontrole)</summary>
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <input type="text" id="cleanupConfirmInput" placeholder="Napíš CLEANUP_OLD_R2" style="padding:7px 10px;border:1px solid #d4d4d8;border-radius:6px;font-size:13px;min-width:210px;">
+        <button type="button" id="runCleanupBtn" class="btn" style="border:none;background:#dc2626;cursor:pointer;opacity:0.5;" disabled>🗑️ Zmazať staré R2 duplikáty</button>
+      </div>
+      <div id="cleanupStatus" style="margin-top:8px;font-size:12px;color:#52525b;"></div>
+    </details>
+  </div>
+
   <h2>1. Zistená schéma D1 databázy</h2>
   <table>
     <thead><tr><th>Tabuľka</th><th>Stĺpce</th></tr></thead>
@@ -554,6 +583,128 @@ const renderDryRunHtml = (report) => {
     <thead><tr><th>Starý R2 kľúč</th><th>Nový ASCII R2 kľúč</th><th>Zdroj v R2</th><th>Thumb</th><th>Cieľ v R2</th></tr></thead>
     <tbody>${r2RowsHtml || '<tr><td colspan="5">Žiadne R2 objekty nevyžadujú migráciu.</td></tr>'}</tbody>
   </table>
+
+  <script>
+  (function () {
+    const runBtn = document.getElementById('runMigrateBtn');
+    const statusEl = document.getElementById('migStatus');
+    const summaryEl = document.getElementById('migFinalSummary');
+    const cleanupInp = document.getElementById('cleanupConfirmInput');
+    const cleanupBtn = document.getElementById('runCleanupBtn');
+    const cleanupStatusEl = document.getElementById('cleanupStatus');
+
+    if (runBtn) {
+      runBtn.addEventListener('click', async () => {
+        runBtn.disabled = true;
+        summaryEl.style.display = 'none';
+        summaryEl.textContent = '';
+        let totalBatches = 0;
+        let totalSucceeded = 0;
+        let totalFailed = 0;
+        let totalOldR2Deleted = 0;
+        let lastRemaining = null;
+        let done = false;
+        const errors = [];
+
+        try {
+          for (let step = 1; step <= 100; step++) {
+            statusEl.textContent = 'Prebieha dávka #' + step + ' (kopírujem R2 a aktualizujem D1)...';
+            const res = await fetch('/api/admin/migrate-ascii', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mode: 'migrate', batchSize: 2 }),
+            });
+            const data = await res.json().catch(() => ({}));
+            totalBatches++;
+            if (!res.ok) {
+              errors.push({ step, status: res.status, error: data.error || ('HTTP ' + res.status), details: data });
+              totalFailed++;
+              break;
+            }
+            totalSucceeded += Number(data.succeeded) || 0;
+            totalFailed += Number(data.failed) || 0;
+            totalOldR2Deleted += Number(data.oldR2ObjectsDeleted) || 0;
+            lastRemaining = data.remaining;
+            done = Boolean(data.done);
+            if (Array.isArray(data.results)) {
+              for (const r of data.results) {
+                if (r.status === 'error') errors.push({ step, ...r });
+              }
+            }
+            statusEl.textContent = 'Dávka #' + step + ' hotová: migrovaných ' + totalSucceeded + ', chýb ' + totalFailed + ', zostáva ' + lastRemaining + '.';
+            if (totalFailed > 0 || done || Number(data.processed) === 0) break;
+          }
+
+          let postDryRunSummary = null;
+          if (done && totalFailed === 0) {
+            statusEl.textContent = 'Overujem stav cez dry-run...';
+            const checkRes = await fetch('/api/admin/migrate-ascii?format=json');
+            const checkJson = await checkRes.json().catch(() => ({}));
+            postDryRunSummary = checkJson.summary || null;
+          }
+
+          const out = {
+            totalBatches,
+            totalSucceeded,
+            totalFailed,
+            totalOldR2Deleted,
+            lastRemaining,
+            done,
+            errors,
+            postDryRunSummary,
+          };
+          summaryEl.style.display = 'block';
+          if (done && totalFailed === 0) {
+            statusEl.textContent = '✅ Migrácia dokončená: ' + totalSucceeded + ' diel, 0 chýb, 0 zmazaných starých R2 objektov.';
+            summaryEl.textContent = 'MIGRATE_COMPLETE\n' + JSON.stringify(out, null, 2);
+          } else {
+            statusEl.textContent = '⚠️ Migrácia zastavená s chybou alebo nedokončená.';
+            summaryEl.textContent = 'MIGRATE_ERROR\n' + JSON.stringify(out, null, 2);
+            runBtn.disabled = false;
+          }
+        } catch (err) {
+          summaryEl.style.display = 'block';
+          statusEl.textContent = '❌ Chyba behu migrácie: ' + err.message;
+          summaryEl.textContent = 'MIGRATE_ERROR\n' + JSON.stringify({ message: err.message, totalBatches, totalSucceeded, totalFailed, errors }, null, 2);
+          runBtn.disabled = false;
+        }
+      });
+    }
+
+    if (cleanupInp && cleanupBtn) {
+      cleanupInp.addEventListener('input', () => {
+        const ok = cleanupInp.value.trim() === 'CLEANUP_OLD_R2';
+        cleanupBtn.disabled = !ok;
+        cleanupBtn.style.opacity = ok ? '1' : '0.5';
+      });
+      cleanupBtn.addEventListener('click', async () => {
+        if (cleanupInp.value.trim() !== 'CLEANUP_OLD_R2') return;
+        cleanupBtn.disabled = true;
+        let totalDeleted = 0;
+        let totalSkipped = 0;
+        try {
+          for (let step = 1; step <= 30; step++) {
+            cleanupStatusEl.textContent = 'Cleanup dávka #' + step + '...';
+            const res = await fetch('/api/admin/migrate-ascii', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mode: 'cleanup', confirm: 'CLEANUP_OLD_R2', batchSize: 50 }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+            totalDeleted += Number(data.deleted) || 0;
+            totalSkipped += Number(data.skipped) || 0;
+            cleanupStatusEl.textContent = 'Cleanup: zmazaných ' + totalDeleted + ', preskočených ' + totalSkipped + ', zostáva ' + data.remaining + '.';
+            if (data.done || Number(data.processed) === 0 || Number(data.deleted) === 0) break;
+          }
+        } catch (err) {
+          cleanupStatusEl.textContent = '❌ Cleanup chyba: ' + err.message;
+          cleanupBtn.disabled = false;
+        }
+      });
+    }
+  })();
+  </script>
 </body>
 </html>`;
 };
@@ -576,51 +727,73 @@ const runMigrateMode = async (env, batchSizeRaw) => {
   const results = [];
   let succeeded = 0;
   let failed = 0;
+  let processed = 0;
+  let r2CopiesInRequest = 0;
   const nowIso = new Date().toISOString();
 
   for (const item of slice) {
+    if (processed > 0 && (r2CopiesInRequest >= 16 || (r2CopiesInRequest > 0 && item.uniqueR2Pairs.length >= 12))) {
+      break;
+    }
+    processed++;
     try {
       // 1. Copy every non-ASCII R2 object (and its thumbnail) to the new ASCII key and verify size
       for (const pair of item.uniqueR2Pairs) {
-        const existingTarget = await env.IMAGES.head(pair.newKey);
-        if (!existingTarget) {
+        let needCopyMain = !plan.r2Map.has(pair.newKey);
+        if (!needCopyMain) {
+          const existingTarget = await env.IMAGES.head(pair.newKey);
+          if (!existingTarget) needCopyMain = true;
+        }
+        if (needCopyMain) {
           const srcObj = await env.IMAGES.get(pair.oldKey);
           if (!srcObj) {
             throw new Error(`Zdrojový objekt v R2 chýba: ${pair.oldKey}`);
           }
-          await env.IMAGES.put(pair.newKey, srcObj.body, {
+          const srcBuf = await srcObj.arrayBuffer();
+          await env.IMAGES.put(pair.newKey, srcBuf, {
             httpMetadata: srcObj.httpMetadata,
             customMetadata: srcObj.customMetadata,
           });
           const verified = await env.IMAGES.head(pair.newKey);
-          if (!verified || verified.size !== srcObj.size) {
+          if (!verified || verified.size !== srcBuf.byteLength) {
             throw new Error(`Overenie skopírovaného R2 objektu zlyhalo: ${pair.newKey}`);
           }
+          r2CopiesInRequest++;
         }
 
         const oldThumbKey = `thumbs/${pair.oldKey}`;
         const newThumbKey = `thumbs/${pair.newKey}`;
         if (plan.r2Map.has(oldThumbKey)) {
-          const existingThumb = await env.IMAGES.head(newThumbKey);
-          if (!existingThumb) {
+          let needCopyThumb = !plan.r2Map.has(newThumbKey);
+          if (!needCopyThumb) {
+            const existingThumb = await env.IMAGES.head(newThumbKey);
+            if (!existingThumb) needCopyThumb = true;
+          }
+          if (needCopyThumb) {
             const srcThumb = await env.IMAGES.get(oldThumbKey);
             if (!srcThumb) {
               throw new Error(`Zdrojový thumbnail v R2 chýba: ${oldThumbKey}`);
             }
-            await env.IMAGES.put(newThumbKey, srcThumb.body, {
+            const thumbBuf = await srcThumb.arrayBuffer();
+            await env.IMAGES.put(newThumbKey, thumbBuf, {
               httpMetadata: srcThumb.httpMetadata,
               customMetadata: srcThumb.customMetadata,
             });
             const verifiedThumb = await env.IMAGES.head(newThumbKey);
-            if (!verifiedThumb || verifiedThumb.size !== srcThumb.size) {
+            if (!verifiedThumb || verifiedThumb.size !== thumbBuf.byteLength) {
               throw new Error(`Overenie skopírovaného thumbnailu zlyhalo: ${newThumbKey}`);
             }
+            r2CopiesInRequest++;
           }
         }
       }
 
       // 2. Atomically update D1 (artworks, artwork_images, inquiries, ascii_migration_log)
       const stmts = [];
+      const nextCoverUrl = item.cover.changed ? item.cover.newUrl : item.row.cover_image;
+      const nextRawUrl = item.raw.changed ? item.raw.newUrl : item.row.raw_image;
+      const nextSocialUrl = item.social.changed ? item.social.newUrl : item.row.social_image_url;
+
       if (item.idChanged) {
         if (!item.folderChanged && item.oldFolder) {
           // Temporarily free UNIQUE folder_name before inserting row with newId
@@ -633,9 +806,9 @@ const runMigrateMode = async (env, batchSizeRaw) => {
         const overrides = {
           id: item.newId,
           folder_name: item.newFolder,
-          cover_image: item.cover.newUrl,
-          raw_image: item.raw.newUrl,
-          social_image_url: item.social.newUrl,
+          cover_image: nextCoverUrl,
+          raw_image: nextRawUrl,
+          social_image_url: nextSocialUrl,
         };
         const colList = artColumns.join(', ');
         const placeholders = artColumns.map(() => '?').join(', ');
@@ -673,9 +846,9 @@ const runMigrateMode = async (env, batchSizeRaw) => {
             `UPDATE artworks SET folder_name = ?, cover_image = ?, raw_image = ?, social_image_url = ? WHERE id = ?`
           ).bind(
             item.newFolder,
-            item.cover.newUrl,
-            item.raw.newUrl,
-            item.social.newUrl,
+            nextCoverUrl,
+            nextRawUrl,
+            nextSocialUrl,
             item.oldId
           )
         );
@@ -729,7 +902,7 @@ const runMigrateMode = async (env, batchSizeRaw) => {
   return jsonResponse({
     mode: 'migrate',
     batchSize,
-    processed: slice.length,
+    processed,
     succeeded,
     failed,
     remaining,
