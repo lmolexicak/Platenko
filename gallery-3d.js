@@ -1408,6 +1408,7 @@
 
     if (renderer) {
       try { renderer.dispose(); } catch {}
+      try { renderer.forceContextLoss(); } catch {}
       renderer = null;
     }
     scene = null;

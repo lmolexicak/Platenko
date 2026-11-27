@@ -13,3 +13,5 @@ automation/
 .git
 .gitignore
 backups/
+images/paintings/
+AUDIT_PROGRESS.md

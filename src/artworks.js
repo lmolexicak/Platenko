@@ -28,9 +28,21 @@ export async function handleArtworksRequest(request, env, pathname) {
         imgMap[img.artwork_id].push(img.image_url);
       }
 
-      return jsonResponse(artworks.map((art) => serializeArtworkRow(art, imgMap)));
+      const list = artworks.map((art) => serializeArtworkRow(art, imgMap));
+      // Verejnosť nedostane interné dáta (stav publikovania, ceny portálov, originál, kanály)
+      const session = await getAuthSession(env, request).catch(() => ({ authenticated: false }));
+      if (!session.authenticated) {
+        for (const item of list) {
+          delete item.publishStatus;
+          delete item.portalPrices;
+          delete item.publishChannels;
+          delete item.rawImage;
+        }
+      }
+      return jsonResponse(list);
     } catch (err) {
-      return jsonResponse({ error: err.message }, 500);
+      console.error('GET /api/artworks failed:', err);
+      return jsonResponse({ error: 'Katalóg sa nepodarilo načítať.' }, 500);
     }
   }
 
