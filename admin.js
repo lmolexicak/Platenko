@@ -379,7 +379,7 @@
 
   function setAdminBrand(section, subtitle) {
     const label = section ? `Plátenko ${section}` : "Plátenko Katalóg";
-    const sub = subtitle || "Admin CMS · Správa diel & 4-bodový orez";
+    const sub = subtitle || "Admin CMS · Správa diel";
     if (dom.brandTitle) dom.brandTitle.textContent = label;
     if (dom.brandSubtitle) dom.brandSubtitle.textContent = sub;
     document.title = `${label} | Admin CMS`;
