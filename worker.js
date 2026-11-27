@@ -622,22 +622,56 @@ const resolvePortalPrice = (artwork, portalKey) => {
   return null;
 };
 
+const MAX_PUBLISH_PHOTOS = 10;
+
+const resolveArtworkPhotoList = (artwork, origin, mode = 'social', maxPhotos = MAX_PUBLISH_PHOTOS) => {
+  const albumRel = Array.isArray(artwork.detailImages) && artwork.detailImages.length > 0
+    ? artwork.detailImages
+    : (artwork.coverImage ? [artwork.coverImage] : []);
+  const rawList = mode === 'social'
+    ? [artwork.socialImageUrl, ...albumRel]
+    : [artwork.coverImage, ...albumRel];
+  const seen = new Set();
+  const deduped = [];
+  for (const item of rawList) {
+    if (!item || typeof item !== 'string') continue;
+    if (seen.has(item)) continue;
+    seen.add(item);
+    deduped.push(item);
+  }
+  const limit = Math.max(1, Math.min(MAX_PUBLISH_PHOTOS, Number(maxPhotos) || MAX_PUBLISH_PHOTOS));
+  const relative = deduped.slice(0, limit);
+  return {
+    relative,
+    absolute: relative.map((u) => toAbsoluteUrl(origin, u)).filter(Boolean),
+  };
+};
+
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const pollMetaContainer = async (baseGraphUrl, containerId, accessToken, maxAttempts = 8, delayMs = 2000) => {
+  for (let i = 0; i < maxAttempts; i++) {
+    const stResp = await fetch(
+      `${baseGraphUrl}/${encodeURIComponent(containerId)}?fields=status_code&access_token=${encodeURIComponent(accessToken)}`
+    );
+    const stData = await stResp.json().catch(() => ({}));
+    if (stData.status_code === 'FINISHED' || stData.status_code === 'PUBLISHED') return;
+    if (stData.status_code === 'ERROR' || stData.status_code === 'EXPIRED') {
+      throw new Error(`Spracovanie média zlyhalo (${stData.status_code}).`);
+    }
+    await sleepMs(delayMs);
+  }
+};
 
 const publishToSingleChannel = async (env, origin, artwork, channelRow) => {
   const key = channelRow.key;
 
   if (key === 'sashe') {
+    const sashePhotos = resolveArtworkPhotoList(artwork, origin, 'marketplace', MAX_PUBLISH_PHOTOS);
     return {
       status: 'pending',
-      note: `Sashe.sk nemá verejné API — spusti lokálny Playwright: cd automation && node run.js --sashe --artwork=${artwork.id}`,
-    };
-  }
-
-  if (!channelRow.implemented) {
-    return {
-      status: 'skipped_unimplemented',
-      note: `${channelRow.label} je v režime predprípravy.`,
+      photoCount: sashePhotos.absolute.length,
+      note: `Sashe.sk nemá verejné API (pripravených ${sashePhotos.absolute.length} fotiek v poradí) — spusti lokálny Playwright: cd automation && node run.js --sashe --artwork=${artwork.id}`,
     };
   }
 
@@ -645,40 +679,73 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow) => {
     const resolved = await resolveProviderCredentials(env, 'meta');
     if (resolved.error) throw new Error(resolved.error);
     const { creds } = resolved;
-    const socialUrl = toAbsoluteUrl(origin, artwork.socialImageUrl || artwork.coverImage);
-    if (!socialUrl) throw new Error('Dielo nemá vybranú fotku pre sociálne siete ani titulnú fotku.');
+    const { absolute: photoUrls } = resolveArtworkPhotoList(artwork, origin, 'social', MAX_PUBLISH_PHOTOS);
+    if (photoUrls.length === 0) throw new Error('Dielo nemá vybranú fotku pre sociálne siete ani titulnú fotku.');
     const caption = buildSocialCaptionServer(artwork, origin);
     const v = 'v21.0';
+    const igGraphBase = `https://graph.facebook.com/${v}`;
 
     if (key === 'instagram') {
       if (!creds.accessToken || !creds.igUserId) {
         throw new Error('Meta integrácia nie je nakonfigurovaná (chýba Access Token alebo IG User ID).');
       }
-      const createResp = await fetch(`https://graph.facebook.com/${v}/${encodeURIComponent(creds.igUserId)}/media`, {
+      let containerIdToPublish = '';
+
+      if (photoUrls.length === 1) {
+        const createResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.igUserId)}/media`, {
+          method: 'POST',
+          body: new URLSearchParams({
+            image_url: photoUrls[0],
+            caption,
+            access_token: creds.accessToken,
+          }),
+        });
+        const createData = await createResp.json().catch(() => ({}));
+        if (!createResp.ok || !createData.id) {
+          throw new Error((createData.error && createData.error.message) || `IG /media HTTP ${createResp.status}`);
+        }
+        await pollMetaContainer(igGraphBase, createData.id, creds.accessToken, 8, 2000);
+        containerIdToPublish = createData.id;
+      } else {
+        const childIds = [];
+        for (const imgUrl of photoUrls) {
+          const childResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.igUserId)}/media`, {
+            method: 'POST',
+            body: new URLSearchParams({
+              image_url: imgUrl,
+              is_carousel_item: 'true',
+              access_token: creds.accessToken,
+            }),
+          });
+          const childData = await childResp.json().catch(() => ({}));
+          if (!childResp.ok || !childData.id) {
+            throw new Error((childData.error && childData.error.message) || `IG carousel item HTTP ${childResp.status}`);
+          }
+          childIds.push(childData.id);
+        }
+        await Promise.all(childIds.map((cid) => pollMetaContainer(igGraphBase, cid, creds.accessToken, 6, 1500)));
+
+        const parentResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.igUserId)}/media`, {
+          method: 'POST',
+          body: new URLSearchParams({
+            media_type: 'CAROUSEL',
+            children: childIds.join(','),
+            caption,
+            access_token: creds.accessToken,
+          }),
+        });
+        const parentData = await parentResp.json().catch(() => ({}));
+        if (!parentResp.ok || !parentData.id) {
+          throw new Error((parentData.error && parentData.error.message) || `IG carousel container HTTP ${parentResp.status}`);
+        }
+        await pollMetaContainer(igGraphBase, parentData.id, creds.accessToken, 8, 2000);
+        containerIdToPublish = parentData.id;
+      }
+
+      const pubResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.igUserId)}/media_publish`, {
         method: 'POST',
         body: new URLSearchParams({
-          image_url: socialUrl,
-          caption,
-          access_token: creds.accessToken,
-        }),
-      });
-      const createData = await createResp.json().catch(() => ({}));
-      if (!createResp.ok || !createData.id) {
-        throw new Error((createData.error && createData.error.message) || `IG /media HTTP ${createResp.status}`);
-      }
-      for (let i = 0; i < 8; i++) {
-        const stResp = await fetch(
-          `https://graph.facebook.com/${v}/${createData.id}?fields=status_code&access_token=${encodeURIComponent(creds.accessToken)}`
-        );
-        const stData = await stResp.json().catch(() => ({}));
-        if (stData.status_code === 'FINISHED') break;
-        if (stData.status_code === 'ERROR') throw new Error('Instagram spracovanie obrázka zlyhalo.');
-        await sleepMs(2000);
-      }
-      const pubResp = await fetch(`https://graph.facebook.com/${v}/${encodeURIComponent(creds.igUserId)}/media_publish`, {
-        method: 'POST',
-        body: new URLSearchParams({
-          creation_id: createData.id,
+          creation_id: containerIdToPublish,
           access_token: creds.accessToken,
         }),
       });
@@ -689,34 +756,85 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow) => {
       let permalink = '';
       try {
         const pResp = await fetch(
-          `https://graph.facebook.com/${v}/${pubData.id}?fields=permalink&access_token=${encodeURIComponent(creds.accessToken)}`
+          `${igGraphBase}/${pubData.id}?fields=permalink&access_token=${encodeURIComponent(creds.accessToken)}`
         );
         const pData = await pResp.json().catch(() => ({}));
         if (pData && pData.permalink) permalink = pData.permalink;
       } catch {}
-      return { status: 'published', externalId: String(pubData.id), url: permalink };
+      return {
+        status: 'published',
+        externalId: String(pubData.id),
+        url: permalink,
+        photoCount: photoUrls.length,
+        note: photoUrls.length > 1 ? `Instagram Carousel (${photoUrls.length} fotiek)` : 'Instagram (1 fotka)',
+      };
     }
 
     if (!creds.accessToken || !creds.fbPageId) {
       throw new Error('Meta integrácia nie je nakonfigurovaná (chýba Access Token alebo FB Page ID).');
     }
-    const fbResp = await fetch(`https://graph.facebook.com/${v}/${encodeURIComponent(creds.fbPageId)}/photos`, {
-      method: 'POST',
-      body: new URLSearchParams({
-        url: socialUrl,
-        message: caption,
-        access_token: creds.accessToken,
-      }),
-    });
-    const fbData = await fbResp.json().catch(() => ({}));
-    if (!fbResp.ok || (!fbData.id && !fbData.post_id)) {
-      throw new Error((fbData.error && fbData.error.message) || `FB /photos HTTP ${fbResp.status}`);
+    if (photoUrls.length === 1) {
+      const fbResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.fbPageId)}/photos`, {
+        method: 'POST',
+        body: new URLSearchParams({
+          url: photoUrls[0],
+          message: caption,
+          access_token: creds.accessToken,
+        }),
+      });
+      const fbData = await fbResp.json().catch(() => ({}));
+      if (!fbResp.ok || (!fbData.id && !fbData.post_id)) {
+        throw new Error((fbData.error && fbData.error.message) || `FB /photos HTTP ${fbResp.status}`);
+      }
+      const postId = String(fbData.post_id || fbData.id);
+      return {
+        status: 'published',
+        externalId: postId,
+        url: `https://www.facebook.com/${postId.replace('_', '/posts/')}`,
+        photoCount: 1,
+        note: 'Facebook (1 fotka)',
+      };
     }
-    const postId = String(fbData.post_id || fbData.id);
+
+    const mediaFbIds = [];
+    for (const imgUrl of photoUrls) {
+      const upResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.fbPageId)}/photos`, {
+        method: 'POST',
+        body: new URLSearchParams({
+          url: imgUrl,
+          published: 'false',
+          access_token: creds.accessToken,
+        }),
+      });
+      const upData = await upResp.json().catch(() => ({}));
+      if (!upResp.ok || !upData.id) {
+        throw new Error((upData.error && upData.error.message) || `FB multi-upload HTTP ${upResp.status}`);
+      }
+      mediaFbIds.push(String(upData.id));
+    }
+
+    const feedParams = new URLSearchParams({
+      message: caption,
+      access_token: creds.accessToken,
+    });
+    mediaFbIds.forEach((fid, idx) => {
+      feedParams.append(`attached_media[${idx}]`, JSON.stringify({ media_fbid: fid }));
+    });
+    const feedResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.fbPageId)}/feed`, {
+      method: 'POST',
+      body: feedParams,
+    });
+    const feedData = await feedResp.json().catch(() => ({}));
+    if (!feedResp.ok || !feedData.id) {
+      throw new Error((feedData.error && feedData.error.message) || `FB /feed HTTP ${feedResp.status}`);
+    }
+    const postId = String(feedData.id);
     return {
       status: 'published',
       externalId: postId,
       url: `https://www.facebook.com/${postId.replace('_', '/posts/')}`,
+      photoCount: photoUrls.length,
+      note: `Facebook galéria (${photoUrls.length} fotiek)`,
     };
   }
 
@@ -742,22 +860,33 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow) => {
       throw new Error('Aukro integrácia nie je nakonfigurovaná (chýba Access Token).');
     }
 
-    const r2Key = urlToR2Key(artwork.coverImage);
-    const obj = r2Key ? await env.IMAGES.get(r2Key) : null;
-    if (!obj) throw new Error('Čistá fotka diela sa nenašla v R2.');
-    const imgBuf = await obj.arrayBuffer();
+    const { relative: photoRels } = resolveArtworkPhotoList(artwork, origin, 'marketplace', MAX_PUBLISH_PHOTOS);
+    if (photoRels.length === 0) throw new Error('Dielo nemá žiadnu fotku pre Aukro.');
 
-    const imgResp = await fetch(`${base}/offers/images`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'image/jpeg',
-      },
-      body: imgBuf,
-    });
-    const imgData = await imgResp.json().catch(() => ({}));
-    if (!imgResp.ok) {
-      throw new Error(imgData.message || `Aukro upload obrázka HTTP ${imgResp.status}`);
+    const uploadedImages = [];
+    for (const rel of photoRels) {
+      const r2Key = urlToR2Key(rel);
+      const obj = r2Key ? await env.IMAGES.get(r2Key) : null;
+      if (!obj) continue;
+      const imgBuf = await obj.arrayBuffer();
+      const ct = (obj.httpMetadata && obj.httpMetadata.contentType) || 'image/jpeg';
+      const imgResp = await fetch(`${base}/offers/images`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': ct,
+        },
+        body: imgBuf,
+      });
+      const imgData = await imgResp.json().catch(() => ({}));
+      if (!imgResp.ok) {
+        throw new Error(imgData.message || `Aukro upload obrázka HTTP ${imgResp.status}`);
+      }
+      if (imgData.url) uploadedImages.push({ url: imgData.url });
+      else if (imgData.id) uploadedImages.push({ id: imgData.id });
+    }
+    if (uploadedImages.length === 0) {
+      throw new Error('Žiadnu fotku sa nepodarilo načítať z R2 pre Aukro.');
     }
 
     const asDraft = !channelRow.autoPublish;
@@ -769,7 +898,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow) => {
         amount: price,
         currency: creds.currency || 'EUR',
       },
-      images: imgData.url ? [{ url: imgData.url }] : (imgData.id ? [{ id: imgData.id }] : []),
+      images: uploadedImages,
       active: !asDraft,
     };
     const offerResp = await fetch(`${base}/offers`, {
@@ -788,6 +917,343 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow) => {
       status: asDraft ? 'drafted' : 'published',
       externalId: String(offerData.id),
       url: offerData.url || '',
+      photoCount: uploadedImages.length,
+      note: `Aukro (${uploadedImages.length} fotiek)`,
+    };
+  }
+
+  if (key === 'threads') {
+    const { absolute: photoUrls } = resolveArtworkPhotoList(artwork, origin, 'social', MAX_PUBLISH_PHOTOS);
+    const resolved = await resolveProviderCredentials(env, 'threads');
+    if (resolved.error) throw new Error(resolved.error);
+    const { creds } = resolved;
+    if (!creds.accessToken || !creds.userId) {
+      return {
+        status: 'pending',
+        photoCount: photoUrls.length,
+        note: `Threads je pripravené pre multi-foto (${photoUrls.length}/${MAX_PUBLISH_PHOTOS} fotiek) — doplň API kľúče v 🔑 Integrácie & Kľúče.`,
+      };
+    }
+    if (photoUrls.length === 0) throw new Error('Dielo nemá fotku pre Threads.');
+    const caption = buildSocialCaptionServer(artwork, origin).slice(0, 500);
+    const thBase = `https://graph.threads.net/v1.0/${encodeURIComponent(creds.userId)}`;
+
+    let creationId = '';
+    if (photoUrls.length === 1) {
+      const cResp = await fetch(`${thBase}/threads`, {
+        method: 'POST',
+        body: new URLSearchParams({
+          media_type: 'IMAGE',
+          image_url: photoUrls[0],
+          text: caption,
+          access_token: creds.accessToken,
+        }),
+      });
+      const cData = await cResp.json().catch(() => ({}));
+      if (!cResp.ok || !cData.id) {
+        throw new Error((cData.error && cData.error.message) || `Threads /threads HTTP ${cResp.status}`);
+      }
+      creationId = cData.id;
+    } else {
+      const childIds = [];
+      for (const imgUrl of photoUrls) {
+        const chResp = await fetch(`${thBase}/threads`, {
+          method: 'POST',
+          body: new URLSearchParams({
+            media_type: 'IMAGE',
+            image_url: imgUrl,
+            is_carousel_item: 'true',
+            access_token: creds.accessToken,
+          }),
+        });
+        const chData = await chResp.json().catch(() => ({}));
+        if (!chResp.ok || !chData.id) {
+          throw new Error((chData.error && chData.error.message) || `Threads carousel item HTTP ${chResp.status}`);
+        }
+        childIds.push(chData.id);
+      }
+      const pResp = await fetch(`${thBase}/threads`, {
+        method: 'POST',
+        body: new URLSearchParams({
+          media_type: 'CAROUSEL',
+          children: childIds.join(','),
+          text: caption,
+          access_token: creds.accessToken,
+        }),
+      });
+      const pData = await pResp.json().catch(() => ({}));
+      if (!pResp.ok || !pData.id) {
+        throw new Error((pData.error && pData.error.message) || `Threads carousel parent HTTP ${pResp.status}`);
+      }
+      creationId = pData.id;
+    }
+
+    const pubResp = await fetch(`${thBase}/threads_publish`, {
+      method: 'POST',
+      body: new URLSearchParams({
+        creation_id: creationId,
+        access_token: creds.accessToken,
+      }),
+    });
+    const pubData = await pubResp.json().catch(() => ({}));
+    if (!pubResp.ok || !pubData.id) {
+      throw new Error((pubData.error && pubData.error.message) || `Threads publish HTTP ${pubResp.status}`);
+    }
+    return {
+      status: 'published',
+      externalId: String(pubData.id),
+      url: '',
+      photoCount: photoUrls.length,
+      note: `Threads (${photoUrls.length} fotiek)`,
+    };
+  }
+
+  if (key === 'pinterest') {
+    const { absolute: photoUrls } = resolveArtworkPhotoList(artwork, origin, 'social', 5);
+    const resolved = await resolveProviderCredentials(env, 'pinterest');
+    if (resolved.error) throw new Error(resolved.error);
+    const { creds } = resolved;
+    if (!creds.accessToken || !creds.boardId) {
+      return {
+        status: 'pending',
+        photoCount: photoUrls.length,
+        note: `Pinterest je pripravené pre multi-foto (${photoUrls.length}/5 fotiek) — doplň API kľúče v 🔑 Integrácie & Kľúče.`,
+      };
+    }
+    if (photoUrls.length === 0) throw new Error('Dielo nemá fotku pre Pinterest.');
+    const deepLink = origin ? `${origin}/?dielo=${encodeURIComponent(artwork.id)}` : '';
+    const desc = buildSocialCaptionServer(artwork, origin).slice(0, 800);
+    const titleStr = String(artwork.title || 'Originálna maľba').slice(0, 100);
+    const mediaSource = photoUrls.length === 1
+      ? { source_type: 'image_url', url: photoUrls[0] }
+      : {
+          source_type: 'multiple_image_urls',
+          index: 0,
+          items: photoUrls.map((u) => ({
+            title: titleStr,
+            description: desc,
+            link: deepLink || undefined,
+            url: u,
+          })),
+        };
+    const pinResp = await fetch('https://api.pinterest.com/v5/pins', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        board_id: creds.boardId,
+        title: titleStr,
+        description: desc,
+        link: deepLink || undefined,
+        media_source: mediaSource,
+      }),
+    });
+    const pinData = await pinResp.json().catch(() => ({}));
+    if (!pinResp.ok || !pinData.id) {
+      throw new Error(pinData.message || `Pinterest /v5/pins HTTP ${pinResp.status}`);
+    }
+    return {
+      status: 'published',
+      externalId: String(pinData.id),
+      url: `https://www.pinterest.com/pin/${pinData.id}/`,
+      photoCount: photoUrls.length,
+      note: `Pinterest (${photoUrls.length} fotiek)`,
+    };
+  }
+
+  if (key === 'tiktok') {
+    const { absolute: photoUrls } = resolveArtworkPhotoList(artwork, origin, 'social', MAX_PUBLISH_PHOTOS);
+    const resolved = await resolveProviderCredentials(env, 'tiktok');
+    if (resolved.error) throw new Error(resolved.error);
+    const { creds } = resolved;
+    if (!creds.accessToken) {
+      return {
+        status: 'pending',
+        photoCount: photoUrls.length,
+        note: `TikTok Photo Mode je pripravený (${photoUrls.length}/${MAX_PUBLISH_PHOTOS} fotiek) — doplň API kľúče v 🔑 Integrácie & Kľúče.`,
+      };
+    }
+    if (photoUrls.length === 0) throw new Error('Dielo nemá fotku pre TikTok.');
+    const caption = buildSocialCaptionServer(artwork, origin);
+    const tkResp = await fetch('https://open.tiktokapis.com/v2/post/publish/content/init/', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+      },
+      body: JSON.stringify({
+        post_info: {
+          title: String(artwork.title || 'Originálna maľba').slice(0, 90),
+          description: caption.slice(0, 4000),
+          privacy_level: 'SELF_ONLY',
+        },
+        source_info: {
+          source: 'PULL_FROM_URL',
+          photo_cover_index: 0,
+          photo_images: photoUrls,
+        },
+        post_mode: 'MEDIA_UPLOAD',
+        media_type: 'PHOTO',
+      }),
+    });
+    const tkData = await tkResp.json().catch(() => ({}));
+    if (!tkResp.ok || (tkData.error && tkData.error.code && tkData.error.code !== 'ok')) {
+      throw new Error((tkData.error && tkData.error.message) || `TikTok API HTTP ${tkResp.status}`);
+    }
+    const pubId = (tkData.data && tkData.data.publish_id) || '';
+    return {
+      status: 'drafted',
+      externalId: String(pubId),
+      url: '',
+      photoCount: photoUrls.length,
+      note: `TikTok Photo Mode (${photoUrls.length} fotiek)`,
+    };
+  }
+
+  if (key === 'x') {
+    const { relative: photoRels, absolute: photoUrls } = resolveArtworkPhotoList(artwork, origin, 'social', 4);
+    const resolved = await resolveProviderCredentials(env, 'x');
+    if (resolved.error) throw new Error(resolved.error);
+    const { creds } = resolved;
+    if (!creds.accessToken) {
+      return {
+        status: 'pending',
+        photoCount: photoUrls.length,
+        note: `X (Twitter) je pripravené pre multi-foto (${photoUrls.length}/4 fotiek) — doplň API kľúče v 🔑 Integrácie & Kľúče.`,
+      };
+    }
+    if (photoRels.length === 0) throw new Error('Dielo nemá fotku pre X.');
+
+    const mediaIds = [];
+    for (const rel of photoRels) {
+      const r2Key = urlToR2Key(rel);
+      const obj = r2Key ? await env.IMAGES.get(r2Key) : null;
+      if (!obj) continue;
+      const buf = await obj.arrayBuffer();
+      const ct = (obj.httpMetadata && obj.httpMetadata.contentType) || 'image/jpeg';
+      const fd = new FormData();
+      fd.append('media', new Blob([buf], { type: ct }), 'artwork.jpg');
+      fd.append('media_category', 'tweet_image');
+      const mResp = await fetch('https://api.x.com/2/media/upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${creds.accessToken}` },
+        body: fd,
+      });
+      const mData = await mResp.json().catch(() => ({}));
+      const mid = (mData.data && mData.data.id) || mData.media_id_string;
+      if (!mResp.ok || !mid) {
+        throw new Error(mData.detail || mData.title || `X media upload HTTP ${mResp.status}`);
+      }
+      mediaIds.push(String(mid));
+    }
+
+    const tweetResp = await fetch('https://api.x.com/2/tweets', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text: buildSocialCaptionServer(artwork, origin).slice(0, 280),
+        media: mediaIds.length > 0 ? { media_ids: mediaIds } : undefined,
+      }),
+    });
+    const tweetData = await tweetResp.json().catch(() => ({}));
+    if (!tweetResp.ok || !tweetData.data || !tweetData.data.id) {
+      throw new Error(tweetData.detail || tweetData.title || `X /2/tweets HTTP ${tweetResp.status}`);
+    }
+    const tid = String(tweetData.data.id);
+    return {
+      status: 'published',
+      externalId: tid,
+      url: `https://x.com/i/web/status/${tid}`,
+      photoCount: mediaIds.length,
+      note: `X (${mediaIds.length} fotiek)`,
+    };
+  }
+
+  if (key === 'etsy') {
+    const { relative: photoRels } = resolveArtworkPhotoList(artwork, origin, 'marketplace', MAX_PUBLISH_PHOTOS);
+    const resolved = await resolveProviderCredentials(env, 'etsy');
+    if (resolved.error) throw new Error(resolved.error);
+    const { creds } = resolved;
+    if (!creds.apiKey || !creds.accessToken || !creds.shopId) {
+      return {
+        status: 'pending',
+        photoCount: photoRels.length,
+        note: `Etsy je pripravené pre multi-foto (${photoRels.length}/${MAX_PUBLISH_PHOTOS} fotiek) — doplň API kľúče v 🔑 Integrácie & Kľúče.`,
+      };
+    }
+    const price = resolvePortalPrice(artwork, 'etsy');
+    if (!(price > 0)) {
+      throw new Error('Dielo nemá zadanú cenu pre Etsy (ani základnú cenu €).');
+    }
+    if (photoRels.length === 0) throw new Error('Dielo nemá fotku pre Etsy.');
+
+    const etsyHeaders = {
+      'x-api-key': creds.apiKey,
+      Authorization: `Bearer ${creds.accessToken}`,
+      'Content-Type': 'application/json',
+    };
+    const listingResp = await fetch(
+      `https://openapi.etsy.com/v3/application/shops/${encodeURIComponent(creds.shopId)}/listings`,
+      {
+        method: 'POST',
+        headers: etsyHeaders,
+        body: JSON.stringify({
+          quantity: 1,
+          title: String(artwork.title || 'Originálna akrylová maľba').slice(0, 140),
+          description: buildMarketplaceDescriptionServer(artwork, origin),
+          price,
+          who_made: 'i_did',
+          when_made: '2020_2029',
+          taxonomy_id: creds.taxonomyId ? Number(creds.taxonomyId) : 66,
+          state: 'draft',
+        }),
+      }
+    );
+    const listingData = await listingResp.json().catch(() => ({}));
+    if (!listingResp.ok || !listingData.listing_id) {
+      throw new Error(listingData.error || `Etsy vytvorenie konceptu HTTP ${listingResp.status}`);
+    }
+    const listingId = listingData.listing_id;
+
+    let uploadedCount = 0;
+    for (let i = 0; i < photoRels.length; i++) {
+      const r2Key = urlToR2Key(photoRels[i]);
+      const obj = r2Key ? await env.IMAGES.get(r2Key) : null;
+      if (!obj) continue;
+      const buf = await obj.arrayBuffer();
+      const ct = (obj.httpMetadata && obj.httpMetadata.contentType) || 'image/jpeg';
+      const fd = new FormData();
+      fd.append('image', new Blob([buf], { type: ct }), `artwork_${i + 1}.jpg`);
+      fd.append('rank', String(i + 1));
+      const imgResp = await fetch(
+        `https://openapi.etsy.com/v3/application/shops/${encodeURIComponent(creds.shopId)}/listings/${listingId}/images`,
+        {
+          method: 'POST',
+          headers: {
+            'x-api-key': creds.apiKey,
+            Authorization: `Bearer ${creds.accessToken}`,
+          },
+          body: fd,
+        }
+      );
+      if (!imgResp.ok) {
+        const imgErr = await imgResp.json().catch(() => ({}));
+        throw new Error(imgErr.error || `Etsy upload fotky #${i + 1} HTTP ${imgResp.status}`);
+      }
+      uploadedCount++;
+    }
+
+    return {
+      status: 'drafted',
+      externalId: String(listingId),
+      url: listingData.url || '',
+      photoCount: uploadedCount,
+      note: `Etsy koncept (${uploadedCount} fotiek)`,
     };
   }
 
@@ -1192,6 +1658,37 @@ export default {
       }
     }
 
+    if (pathname === '/api/auth/verify-password' && request.method === 'POST') {
+      try {
+        const session = await getAuthSession(request);
+        if (!session.authenticated) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const password = typeof body.password === 'string' ? body.password : '';
+        if (!password) {
+          return jsonResponse({ error: 'Zadaj heslo správcu.' }, 400);
+        }
+
+        const authRow = await env.DB.prepare(
+          `SELECT password_salt, password_hash FROM admin_auth WHERE id = 1`
+        ).first();
+        if (!authRow) {
+          return jsonResponse({ error: 'Auth configuration missing.' }, 500);
+        }
+
+        const computedHash = await pbkdf2HashHex(password, authRow.password_salt);
+        if (!timingSafeEqualHex(computedHash, authRow.password_hash)) {
+          return jsonResponse({ error: 'Nesprávne heslo správcu.' }, 401);
+        }
+
+        return jsonResponse({ verified: true });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
     // ---- Lookups (Číselníky) D1 Bootstrap & CRUD ----
     const DEFAULT_LOOKUPS = [
       { category: 'technique', code: 'Pouring', label: 'Pouring', color: '', meta: '', show_in_filter: 1, sort_order: 1 },
@@ -1306,6 +1803,37 @@ export default {
         );
         await env.DB.batch(stmts);
         return jsonResponse({ success: true });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    if (pathname === '/api/auth/verify-password' && request.method === 'POST') {
+      try {
+        const session = await getAuthSession(request);
+        if (!session.authenticated) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const password = typeof body.password === 'string' ? body.password : '';
+        if (!password) {
+          return jsonResponse({ error: 'Zadaj heslo správcu.' }, 400);
+        }
+
+        const authRow = await env.DB.prepare(
+          `SELECT password_salt, password_hash FROM admin_auth WHERE id = 1`
+        ).first();
+        if (!authRow) {
+          return jsonResponse({ error: 'Auth configuration missing.' }, 500);
+        }
+
+        const computedHash = await pbkdf2HashHex(password, authRow.password_salt);
+        if (!timingSafeEqualHex(computedHash, authRow.password_hash)) {
+          return jsonResponse({ error: 'Nesprávne heslo správcu.' }, 401);
+        }
+
+        return jsonResponse({ verified: true });
       } catch (err) {
         return jsonResponse({ error: err.message }, 500);
       }
@@ -1435,6 +1963,37 @@ export default {
       }
     }
 
+    if (pathname === '/api/auth/verify-password' && request.method === 'POST') {
+      try {
+        const session = await getAuthSession(request);
+        if (!session.authenticated) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const password = typeof body.password === 'string' ? body.password : '';
+        if (!password) {
+          return jsonResponse({ error: 'Zadaj heslo správcu.' }, 400);
+        }
+
+        const authRow = await env.DB.prepare(
+          `SELECT password_salt, password_hash FROM admin_auth WHERE id = 1`
+        ).first();
+        if (!authRow) {
+          return jsonResponse({ error: 'Auth configuration missing.' }, 500);
+        }
+
+        const computedHash = await pbkdf2HashHex(password, authRow.password_salt);
+        if (!timingSafeEqualHex(computedHash, authRow.password_hash)) {
+          return jsonResponse({ error: 'Nesprávne heslo správcu.' }, 401);
+        }
+
+        return jsonResponse({ verified: true });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
     // DELETE /api/lookups/:id (Authenticated)
     if (pathname.startsWith('/api/lookups/') && request.method === 'DELETE') {
       try {
@@ -1444,6 +2003,37 @@ export default {
         const id = Number(decodeURIComponent(pathname.substring('/api/lookups/'.length)));
         await env.DB.prepare(`DELETE FROM lookups WHERE id = ?`).bind(id).run();
         return jsonResponse({ success: true });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    if (pathname === '/api/auth/verify-password' && request.method === 'POST') {
+      try {
+        const session = await getAuthSession(request);
+        if (!session.authenticated) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const password = typeof body.password === 'string' ? body.password : '';
+        if (!password) {
+          return jsonResponse({ error: 'Zadaj heslo správcu.' }, 400);
+        }
+
+        const authRow = await env.DB.prepare(
+          `SELECT password_salt, password_hash FROM admin_auth WHERE id = 1`
+        ).first();
+        if (!authRow) {
+          return jsonResponse({ error: 'Auth configuration missing.' }, 500);
+        }
+
+        const computedHash = await pbkdf2HashHex(password, authRow.password_salt);
+        if (!timingSafeEqualHex(computedHash, authRow.password_hash)) {
+          return jsonResponse({ error: 'Nesprávne heslo správcu.' }, 401);
+        }
+
+        return jsonResponse({ verified: true });
       } catch (err) {
         return jsonResponse({ error: err.message }, 500);
       }
@@ -1695,6 +2285,7 @@ export default {
                 externalId: res.externalId || '',
                 url: res.url || '',
                 note: res.note || '',
+                photoCount: res.photoCount || 0,
                 updatedAt: nowIso,
               };
               if (key === 'instagram' && res.url && !artwork.instagramUrl) {
@@ -1851,11 +2442,15 @@ export default {
 
           if (!shouldInclude) continue;
 
+          const socialList = resolveArtworkPhotoList(art, url.origin, 'social', MAX_PUBLISH_PHOTOS);
+          const marketList = resolveArtworkPhotoList(art, url.origin, 'marketplace', MAX_PUBLISH_PHOTOS);
           artworksPayload.push({
             ...art,
             cleanImageUrl: toAbsoluteUrl(url.origin, art.coverImage),
             socialImagePublicUrl: toAbsoluteUrl(url.origin, art.socialImageUrl),
             detailImageUrls: (art.detailImages || []).map((u) => toAbsoluteUrl(url.origin, u)),
+            socialImageUrls: socialList.absolute,
+            marketplaceImageUrls: marketList.absolute,
             pendingChannels,
           });
         }
@@ -2280,6 +2875,91 @@ export default {
           primaryId,
           detailImages: combined,
           photoCount: combined.length,
+        });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // POST /api/artworks/:id/images/reorder - Persist album photo order & cover atomically (Authenticated)
+    if (pathname.startsWith('/api/artworks/') && pathname.endsWith('/images/reorder') && request.method === 'POST') {
+      try {
+        const session = await getAuthSession(request);
+        if (!session.authenticated) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+        await ensureAutomationSchema(env);
+
+        const id = decodeURIComponent(
+          pathname.slice('/api/artworks/'.length, -'/images/reorder'.length)
+        ).trim();
+        if (!id) {
+          return jsonResponse({ error: 'Chýba ID diela.' }, 400);
+        }
+
+        const artRow = await env.DB.prepare(`SELECT id, cover_image FROM artworks WHERE id = ?`).bind(id).first();
+        if (!artRow) {
+          return jsonResponse({ error: 'Dielo neexistuje.' }, 404);
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const orderedUrls = Array.isArray(body.orderedUrls)
+          ? body.orderedUrls.filter((u) => typeof u === 'string' && u.length > 0)
+          : [];
+        if (orderedUrls.length === 0) {
+          return jsonResponse({ error: 'orderedUrls musí obsahovať aspoň jednu fotku.' }, 400);
+        }
+
+        const { results: existingRows } = await env.DB.prepare(
+          `SELECT image_url FROM artwork_images WHERE artwork_id = ? ORDER BY sort_order ASC`
+        ).bind(id).all();
+        const existingUrls = (existingRows || []).map((r) => r.image_url).filter(Boolean);
+        if (existingUrls.length === 0 && artRow.cover_image) {
+          existingUrls.push(artRow.cover_image);
+        }
+
+        const existingSet = new Set(existingUrls);
+        const finalUrls = [];
+        const seen = new Set();
+        for (const u of orderedUrls) {
+          if (existingSet.has(u) && !seen.has(u)) {
+            seen.add(u);
+            finalUrls.push(u);
+          }
+        }
+        for (const u of existingUrls) {
+          if (!seen.has(u)) {
+            seen.add(u);
+            finalUrls.push(u);
+          }
+        }
+
+        if (finalUrls.length === 0) {
+          return jsonResponse({ error: 'Žiadne platné fotky na preusporiadanie.' }, 400);
+        }
+
+        const stmts = [
+          env.DB.prepare(`DELETE FROM artwork_images WHERE artwork_id = ?`).bind(id),
+        ];
+        finalUrls.forEach((imgUrl, idx) => {
+          stmts.push(
+            env.DB.prepare(
+              `INSERT INTO artwork_images (artwork_id, image_url, is_cover, sort_order) VALUES (?, ?, ?, ?)`
+            ).bind(id, imgUrl, idx === 0 ? 1 : 0, idx)
+          );
+        });
+        stmts.push(
+          env.DB.prepare(`UPDATE artworks SET cover_image = ?, photo_count = ? WHERE id = ?`)
+            .bind(finalUrls[0], finalUrls.length, id)
+        );
+        await env.DB.batch(stmts);
+
+        return jsonResponse({
+          success: true,
+          id,
+          coverImage: finalUrls[0],
+          detailImages: finalUrls,
+          photoCount: finalUrls.length,
         });
       } catch (err) {
         return jsonResponse({ error: err.message }, 500);

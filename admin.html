@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261127a">
+  <link rel="stylesheet" href="styles.css?v=20261127b">
 </head>
 <body>
 
@@ -104,7 +104,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
               <div>
                 <span class="edit-label" style="margin: 0;">📸 Fotografie v albume <span id="admPhotoCount" style="font-weight: normal; text-transform: none;"></span></span>
-                <span style="font-size: 0.75rem; color: var(--text-muted);">Kliknutím na fotku ju zvolíš ako Titulnú · 📐 alebo ✨ vždy vytvorí novú kópiu (pôvodná fotka ostáva).</span>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Ťahaj ⋮⋮ pre poradie (do sietí/portálov ide prvých 10) · Kliknutím na fotku ju zvolíš ako Titulnú (#1) · 📱 označí 1. fotku pre sociálne siete.</span>
               </div>
               <div>
                 <input type="file" id="admAddPhotosInput" accept="image/*" multiple style="display: none;">
@@ -490,24 +490,44 @@
         </div>
       </div>
 
-      <!-- TAB 2: Encrypted Integrations Manager -->
+      <!-- TAB 2: Encrypted Integrations Manager (Super-Admin Protected) -->
       <div id="admAutoTabIntegrations" class="adm-auto-tab-panel" style="display: none;">
         <div id="admIntegEncryptionNotice" class="adm-auto-cli-box" style="display: none;"></div>
-        <div class="adm-auto-cli-box" style="margin-bottom: 10px;">
-          <span style="font-size: 0.78rem; color: var(--text-muted);">
-            🔒 Uložené kľúče sa na serveri šifrujú (AES-GCM) a nikdy sa neposielajú späť do prehliadača.
-          </span>
-          <button type="button" id="admRefreshTokensBtn" class="btn-secondary" style="padding: 5px 10px; font-size: 0.76rem;">
-            🔄 Obnoviť tokeny
-          </button>
+        <div id="admIntegLockBox" class="adm-integ-lock-box">
+          <div id="admIntegLockedState">
+            <div style="font-size: 0.8rem; line-height: 1.45; margin-bottom: 8px;">
+              <strong>🔒 Technické nastavenia pre správcu (zamknuté)</strong><br>
+              <span style="color: var(--text-muted);">Tieto kľúče prepájajú web so sieťami a portálmi. Neodbornou zmenou alebo vymazaním môže automatické publikovanie prestať fungovať.</span>
+            </div>
+            <form id="admIntegUnlockForm" class="adm-integ-unlock-row">
+              <input type="password" id="admIntegUnlockPass" class="edit-input" placeholder="Heslo správcu pre odomknutie úprav..." autocomplete="current-password" required style="flex: 1; min-width: 170px; padding: 7px 10px; font-size: 0.82rem;">
+              <button type="submit" id="admIntegUnlockBtn" class="btn-secondary" style="padding: 7px 14px; font-size: 0.8rem; white-space: nowrap;">
+                🔓 Odomknúť úpravy
+              </button>
+            </form>
+            <div id="admIntegUnlockErr" class="settings-error" style="display: none; margin-top: 8px; padding: 6px 10px; font-size: 0.78rem;"></div>
+          </div>
+          <div id="admIntegUnlockedState" style="display: none; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+            <span style="font-size: 0.79rem; color: #b45309; font-weight: 600;">
+              🔓 Technický režim odomknutý — kľúče sa na serveri šifrujú (AES-GCM), ale úpravou alebo odpojením sa prepíšu.
+            </span>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+              <button type="button" id="admRefreshTokensBtn" class="btn-secondary" style="padding: 5px 10px; font-size: 0.76rem;">
+                🔄 Obnoviť tokeny
+              </button>
+              <button type="button" id="admIntegLockBtn" class="btn-secondary" style="padding: 5px 10px; font-size: 0.76rem;">
+                🔒 Zamknúť späť
+              </button>
+            </div>
+          </div>
         </div>
         <div id="admIntegrationsList" class="adm-auto-scroll"></div>
       </div>
     </div>
   </div>
 
-  <script src="perspective-warp.js?v=20261127a"></script>
-  <script src="cover-studio.js?v=20261127a"></script>
-  <script src="admin.js?v=20261127a"></script>
+  <script src="perspective-warp.js?v=20261127b"></script>
+  <script src="cover-studio.js?v=20261127b"></script>
+  <script src="admin.js?v=20261127b"></script>
 </body>
 </html>

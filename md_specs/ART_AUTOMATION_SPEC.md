@@ -3,10 +3,12 @@
 ## 1. Project Context & Goal
 We have an existing artist portfolio web application deployed on **Cloudflare** (Cloudflare Workers + static `[assets]`, Cloudflare D1 database, and Cloudflare R2 storage).
 The goal is to provide a self-sufficient, 1-click multi-channel publishing pipeline inside Admin CMS (usable even from a mobile phone, without needing a PC running):
-1. **Manual 3D / Social Photo Choice:** The artist prepares 3D Cover images manually via **3D Cover Studio** (`cover-studio.js`) and marks the desired photo in the artwork's album with **`📱`** (`social_image_url`). If none is marked, the artwork's cover image is used automatically.
-2. **Direct Cloudflare Worker Publishing (`Instagram`, `Facebook`, `Aukro`):** Published directly on 1 click (**`🚀 Publikovať teraz`**) from Admin CMS via Meta Graph API and Aukro REST API (Aukro creates a draft/inactive offer by default).
-3. **Sashe.sk Browser Automation:** Since Sashe.sk has no public REST API, a dedicated local **Playwright** script (`/automation/run.js --sashe`) fills the form with clean images and pauses at the review/draft screen.
-4. **Per-Network Switches & Encrypted Integrations (`🚀 Automatizácia`):** Admin CMS provides individual ON/OFF switches per channel plus an **Integrácie & Kľúče** tab where tokens/IDs are encrypted (AES-256-GCM via `AUTOMATION_ENCRYPTION_KEY`), tested live, and refreshed automatically by a weekly Cloudflare Cron Trigger.
+1. **Manual 3D / Social Photo & Ordered Multi-Photo Upload (max 10):** The artist prepares 3D Cover images manually via **3D Cover Studio** (`cover-studio.js`), reorders thumbnails directly inside the album grid (`⋮⋮ #N` drag-and-drop), and marks the preferred first photo for social media with **`📱`** (`social_image_url`). Up to the **first 10 ordered photos** are published:
+   - Social channels (`Instagram` Carousel, `Facebook` multi-photo feed, `Threads` Carousel, `TikTok` Photo Mode, `Pinterest` up to 5, `X` up to 4): `📱` photo first (if selected), followed by remaining album photos in order.
+   - Marketplaces (`Aukro`, `Sashe.sk`, `Etsy`): first 10 album photos starting from Cover (`#1`).
+2. **Direct Cloudflare Worker Publishing:** Published directly on 1 click (**`🚀 Publikovať teraz`**) from Admin CMS for Meta (`Instagram` / `Facebook`), `Aukro` (draft by default), plus multi-photo ready handlers for `Threads`, `Pinterest`, `TikTok`, `X`, and `Etsy` once credentials are entered.
+3. **Sashe.sk Browser Automation:** Since Sashe.sk has no public REST API, a dedicated local **Playwright** script (`/automation/run.js --sashe`) uploads up to 10 ordered clean images, fills the form, and pauses at the review/draft screen.
+4. **Per-Network Switches & Super-Admin Locked Integrations (`🚀 Automatizácia`):** Admin CMS provides individual ON/OFF switches per channel plus a password-locked **Integrácie & Kľúče** tab (default locked on modal open/close; unlocked via `POST /api/auth/verify-password`) where tokens/IDs are encrypted (AES-256-GCM via `AUTOMATION_ENCRYPTION_KEY`), tested live, and refreshed automatically by a weekly Cloudflare Cron Trigger.
 5. **Per-Portal Pricing:** Each artwork supports a base `priceEur` plus optional overrides per marketplace (`portalPrices`: `aukro`, `sashe`, `etsy`).
 6. **Extensible Adapter Architecture:** Pre-prepared channels & integrations for **Pinterest, TikTok, Threads, X (Twitter), and Etsy** ready to activate with credentials and API calls.
 
@@ -40,6 +42,8 @@ The goal is to provide a self-sufficient, 1-click multi-channel publishing pipel
    - Fallback to Cloudflare Worker Secrets (`META_ACCESS_TOKEN`, `AUKRO_ACCESS_TOKEN`, etc.) when no DB credential is saved.
    - Weekly Cron Trigger (`[triggers] crons = ["0 3 * * 1"]` → `scheduled()` in `worker.js`) automatically exchanges/refreshes expiring Meta and Aukro tokens (within 14 days of expiry) and flags `status = 'error'` in Admin CMS if refresh fails.
 3. **API Endpoints (Bearer `AUTOMATION_API_KEY` or Admin cookie session):**
+   - `POST /api/auth/verify-password` — verifies Super-Admin password to unlock the Integrations & Keys editor without altering the session.
+   - `POST /api/artworks/:id/images/reorder` — atomically saves reordered album thumbnail URLs (`cover_image`, `artwork_images.sort_order`, `is_cover`, `photo_count`).
    - `GET / PUT /api/automation/channels` — channel switches & pending summary.
    - `GET / PUT / DELETE /api/automation/integrations/:provider` — masked status & encrypted credential storage.
    - `POST /api/automation/integrations/:provider/test` — live upstream verification (`@ig_username`, Facebook Page name, Aukro user) + token expiry check.
@@ -49,9 +53,9 @@ The goal is to provide a self-sufficient, 1-click multi-channel publishing pipel
 
 ### Phase 2: Admin CMS UI (`admin.html`, `admin.js`, `styles.css`)
 - **Ceny (€):** base `priceEur` + per-portal inputs for `Aukro`, `Sashe.sk`, and `Etsy`.
-- **Album Photo Picker (`📱`):** button on every album photo card to designate the social-media image (e.g. a manually crafted 3D Cover).
-- **Per-Artwork Publish Panel (`#admPublishPanel`):** checkboxes for target channels, status badges, `↺` reset button, and **`🚀 Publikovať teraz`** button that saves changes and publishes immediately with per-channel result reporting.
-- **`🚀 Automatizácia` Modal:** two tabs — **🔀 Kanály (ON/OFF)** and **🔑 Integrácie & Kľúče** (with masked inputs, live *Otestovať pripojenie*, *Odpojiť*, and *Obnoviť tokeny*).
+- **Album Photo Picker (`📱`) & Drag-and-Drop Reorder (`⋮⋮ #N`):** thumbnail cards support drag-and-drop reordering persisted immediately to D1 (first 10 photos used for multi-photo publishing) and **`📱`** to designate the 1st social-media image.
+- **Per-Artwork Publish Panel (`#admPublishPanel`):** checkboxes for target channels, status badges, `↺` reset button, and **`🚀 Publikovať teraz`** button that saves changes and publishes up to 10 ordered photos per channel with result counts.
+- **`🚀 Automatizácia` Modal:** two tabs — **🔀 Kanály (ON/OFF)** and **🔑 Integrácie & Kľúče** (protected by a Super-Admin password lock by default, with live *Otestovať pripojenie*, *Odpojiť*, and *Obnoviť tokeny*).
 
 ### Phase 3: Local Sashe.sk Runner (`/automation/`)
 - Dedicated to **Sashe.sk** via Playwright (`headless: false`, persisted `.sessions/sashe-state.json`, pauses before final publish, uses `portalPrices.sashe ?? priceEur`).

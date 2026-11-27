@@ -51,7 +51,10 @@
   let automationIntegrations = [];
   let encryptionKeyConfigured = true;
   let activeAutoTab = "channels";
+  let integrationsUnlocked = false;
   let editingPublishChannels = {};
+  let photoDragState = null;
+  let suppressNextPhotoClick = false;
 
   const dom = {};
   function cacheDom() {
@@ -79,6 +82,14 @@
     dom.autoSocialList = document.getElementById("admAutoSocialList");
     dom.autoMarketList = document.getElementById("admAutoMarketList");
     dom.integEncryptionNotice = document.getElementById("admIntegEncryptionNotice");
+    dom.integLockBox = document.getElementById("admIntegLockBox");
+    dom.integLockedState = document.getElementById("admIntegLockedState");
+    dom.integUnlockedState = document.getElementById("admIntegUnlockedState");
+    dom.integUnlockForm = document.getElementById("admIntegUnlockForm");
+    dom.integUnlockPass = document.getElementById("admIntegUnlockPass");
+    dom.integUnlockBtn = document.getElementById("admIntegUnlockBtn");
+    dom.integUnlockErr = document.getElementById("admIntegUnlockErr");
+    dom.integLockBtn = document.getElementById("admIntegLockBtn");
     dom.refreshTokensBtn = document.getElementById("admRefreshTokensBtn");
     dom.integrationsList = document.getElementById("admIntegrationsList");
 
@@ -607,6 +618,21 @@
     return row;
   }
 
+  function setIntegrationsUnlocked(unlocked) {
+    integrationsUnlocked = Boolean(unlocked);
+    if (dom.integLockBox) dom.integLockBox.classList.toggle("unlocked", integrationsUnlocked);
+    if (dom.integLockedState) dom.integLockedState.style.display = integrationsUnlocked ? "none" : "block";
+    if (dom.integUnlockedState) dom.integUnlockedState.style.display = integrationsUnlocked ? "flex" : "none";
+    if (dom.integUnlockErr) {
+      dom.integUnlockErr.style.display = "none";
+      dom.integUnlockErr.textContent = "";
+    }
+    if (!integrationsUnlocked && dom.integUnlockPass) {
+      dom.integUnlockPass.value = "";
+    }
+    renderIntegrationsList();
+  }
+
   function setAutoTab(tabName) {
     activeAutoTab = tabName === "integrations" ? "integrations" : "channels";
     (dom.autoTabBtns || []).forEach((btn) => {
@@ -659,20 +685,33 @@
       const expStr = integ.expiresAt ? new Date(integ.expiresAt).toLocaleDateString("sk-SK") : "";
       const sourceLabel = integ.source === "env_secret" ? "Cloudflare Secret" : (integ.source === "db" ? "Šifrované v D1" : "");
 
-      const fieldsHtml = (integ.fields || []).map((f) => `
-        <div>
-          <label class="edit-label" style="font-size:0.74rem;margin-bottom:3px;">
-            ${f.label} ${f.hasValue ? '<span style="color:#16a34a;">(uložené)</span>' : ""}
-          </label>
-          <input
-            type="${f.secret ? "password" : "text"}"
-            class="edit-input adm-integ-input"
-            data-field="${f.key}"
-            autocomplete="off"
-            placeholder="${f.hasValue ? "•••• (ponechaj prázdne pre zachovanie)" : (f.placeholder || "")}"
-          >
-        </div>
-      `).join("");
+      const fieldsHtml = integrationsUnlocked
+        ? `<div class="adm-integ-fields">${(integ.fields || []).map((f) => `
+            <div>
+              <label class="edit-label" style="font-size:0.74rem;margin-bottom:3px;">
+                ${f.label} ${f.hasValue ? '<span style="color:#16a34a;">(uložené)</span>' : ""}
+              </label>
+              <input
+                type="${f.secret ? "password" : "text"}"
+                class="edit-input adm-integ-input"
+                data-field="${f.key}"
+                autocomplete="off"
+                placeholder="${f.hasValue ? "•••• (ponechaj prázdne pre zachovanie)" : (f.placeholder || "")}"
+              >
+            </div>
+          `).join("")}</div>`
+        : "";
+
+      const actionsHtml = integrationsUnlocked
+        ? `
+          <button type="button" class="btn-primary adm-integ-save" style="padding:7px 14px;font-size:0.8rem;">💾 Uložiť (zašifrovať)</button>
+          <button type="button" class="btn-secondary adm-integ-test" style="padding:7px 14px;font-size:0.8rem;">🔍 Otestovať pripojenie</button>
+          ${integ.source === "db" ? `<button type="button" class="btn-secondary adm-integ-del" style="padding:7px 12px;font-size:0.8rem;color:#ef4444;">🔌 Odpojiť</button>` : ""}
+        `
+        : `
+          <button type="button" class="btn-secondary adm-integ-test" style="padding:6px 12px;font-size:0.78rem;">🔍 Otestovať pripojenie</button>
+          <span class="adm-integ-locked-tag">🔒 Polia sú zamknuté proti nechcenej zmene</span>
+        `;
 
       card.innerHTML = `
         <div class="adm-integ-head">
@@ -687,38 +726,37 @@
           <span class="adm-integ-badge ${integ.status || "disconnected"}">${badgeLabels[integ.status] || integ.status}</span>
         </div>
         ${integ.lastError ? `<div class="settings-error" style="font-size:0.78rem;padding:6px 10px;margin:0;">${integ.lastError}</div>` : ""}
-        <div class="adm-integ-fields">${fieldsHtml}</div>
-        <div class="adm-integ-actions">
-          <button type="button" class="btn-primary adm-integ-save" style="padding:7px 14px;font-size:0.8rem;">💾 Uložiť (zašifrovať)</button>
-          <button type="button" class="btn-secondary adm-integ-test" style="padding:7px 14px;font-size:0.8rem;">🔍 Otestovať pripojenie</button>
-          ${integ.source === "db" ? `<button type="button" class="btn-secondary adm-integ-del" style="padding:7px 12px;font-size:0.8rem;color:#ef4444;">🔌 Odpojiť</button>` : ""}
-        </div>
+        ${fieldsHtml}
+        <div class="adm-integ-actions">${actionsHtml}</div>
       `;
 
-      card.querySelector(".adm-integ-save").addEventListener("click", async () => {
-        const credentials = {};
-        card.querySelectorAll(".adm-integ-input").forEach((inp) => {
-          const val = inp.value.trim();
-          if (val) credentials[inp.dataset.field] = val;
-        });
-        if (Object.keys(credentials).length === 0) {
-          showAutoMsg("Zadaj aspoň jeden údaj na uloženie.", true);
-          return;
-        }
-        try {
-          const resp = await fetch(`/api/automation/integrations/${encodeURIComponent(integ.provider)}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ credentials }),
+      const saveBtn = card.querySelector(".adm-integ-save");
+      if (saveBtn) {
+        saveBtn.addEventListener("click", async () => {
+          const credentials = {};
+          card.querySelectorAll(".adm-integ-input").forEach((inp) => {
+            const val = inp.value.trim();
+            if (val) credentials[inp.dataset.field] = val;
           });
-          const data = await resp.json().catch(() => ({}));
-          if (!resp.ok) throw new Error(data.error || ("HTTP " + resp.status));
-          await loadAutomationIntegrations();
-          showAutoMsg(`✓ ${integ.label}: údaje zašifrované a uložené.`);
-        } catch (err) {
-          showAutoMsg("Chyba uloženia integrácie: " + err.message, true);
-        }
-      });
+          if (Object.keys(credentials).length === 0) {
+            showAutoMsg("Zadaj aspoň jeden údaj na uloženie.", true);
+            return;
+          }
+          try {
+            const resp = await fetch(`/api/automation/integrations/${encodeURIComponent(integ.provider)}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ credentials }),
+            });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) throw new Error(data.error || ("HTTP " + resp.status));
+            await loadAutomationIntegrations();
+            showAutoMsg(`✓ ${integ.label}: údaje zašifrované a uložené.`);
+          } catch (err) {
+            showAutoMsg("Chyba uloženia integrácie: " + err.message, true);
+          }
+        });
+      }
 
       card.querySelector(".adm-integ-test").addEventListener("click", async (e) => {
         const btn = e.currentTarget;
@@ -748,7 +786,7 @@
       const delBtn = card.querySelector(".adm-integ-del");
       if (delBtn) {
         delBtn.addEventListener("click", async () => {
-          if (!confirm(`Odpojiť uložené prístupové údaje pre ${integ.label}?`)) return;
+          if (!confirm(`POZOR: Naozaj chceš natrvalo odpojiť a vymazať uložené API kľúče pre ${integ.label}?\nAutomatické publikovanie na túto sieť prestane fungovať, kým ich znova nenastavíš.`)) return;
           try {
             const resp = await fetch(`/api/automation/integrations/${encodeURIComponent(integ.provider)}`, {
               method: "DELETE",
@@ -798,9 +836,9 @@
   function openAutomationModal(defaultTab = "channels") {
     if (!dom.automationModal) return;
     if (dom.autoStatusMsg) dom.autoStatusMsg.style.display = "none";
+    setIntegrationsUnlocked(false);
     setAutoTab(defaultTab);
     renderAutomationModal();
-    renderIntegrationsList();
     dom.automationModal.classList.add("open");
     document.body.style.overflow = "hidden";
     loadAutomationChannels();
@@ -809,6 +847,7 @@
 
   function closeAutomationModal() {
     if (!dom.automationModal) return;
+    setIntegrationsUnlocked(false);
     dom.automationModal.classList.remove("open");
     document.body.style.overflow = "";
   }
@@ -825,6 +864,8 @@
     const chosenSocial = currentSocialImageUrl || art.socialImageUrl || "";
     const fallbackCover = albumPhotos[0] || art.coverImage || "";
     const previewSocial = chosenSocial || fallbackCover;
+    const totalCount = albumPhotos.length;
+    const uploadLimit = Math.min(10, totalCount);
 
     if (dom.socialThumbWrap && dom.socialThumbImg) {
       if (previewSocial) {
@@ -834,11 +875,11 @@
         dom.socialThumbWrap.style.display = "flex";
         if (dom.socialThumbTitle) {
           dom.socialThumbTitle.textContent = chosenSocial
-            ? "Vybraná fotka pre sociálne siete (📱)"
-            : "Použije sa titulná fotka (alebo klikni 📱 na 3D fotku v albume)";
+            ? `1. fotka na siete je 📱 (+ ďalšie z albumu, spolu ${uploadLimit}/${totalCount})`
+            : `Nahrá sa prvých ${uploadLimit} z ${totalCount} fotiek podľa poradia albumu`;
         }
         if (dom.socialThumbDesc) {
-          dom.socialThumbDesc.textContent = "Pre portály (Aukro / Sashe) sa použije vždy čistá titulná fotka.";
+          dom.socialThumbDesc.textContent = "Pre portály (Aukro / Sashe / Etsy) ide prvých 10 fotiek v poradí od Titulnej (#1).";
         }
       } else {
         dom.socialThumbWrap.style.display = "none";
@@ -986,7 +1027,8 @@
           const row = document.createElement("div");
           row.className = "adm-pub-res-row";
           const icon = res.status === "published" ? "✅" : (res.status === "drafted" ? "📝" : (res.status === "error" ? "❌" : "ℹ️"));
-          const detail = res.error || res.note || res.url || res.status;
+          const countTag = res.photoCount > 0 ? ` (${res.photoCount} fotiek)` : "";
+          const detail = (res.error || res.note || res.url || res.status) + (res.note && res.note.includes("fotiek") ? "" : countTag);
           row.innerHTML = `<strong>${icon} ${label}</strong><span style="color:${res.status === "error" ? "#dc2626" : "var(--text-muted)"};">${detail}</span>`;
           dom.publishResultBox.appendChild(row);
         });
@@ -1031,6 +1073,187 @@
     }
   }
 
+  async function persistAlbumPhotoOrder(fromIdx, toIdx, customMsg) {
+    refreshCoverAndAlbumUI(customMsg || `✓ Poradie fotiek upravené (#${fromIdx + 1} → #${toIdx + 1})`);
+    if (editingId) {
+      const curArt = artworks.find((a) => a.id === editingId);
+      if (curArt) renderArtworkPublishPanel(curArt);
+    }
+
+    const hasUnsavedDataUrls = albumPhotos.some((u) => typeof u === "string" && u.startsWith("data:"));
+    if (!editingId || hasUnsavedDataUrls || albumPhotos.length === 0) {
+      refreshCoverAndAlbumUI(`${customMsg || `✓ Poradie fotiek upravené (#${fromIdx + 1} → #${toIdx + 1})`} (potvrď tlačidlom Uložiť)`);
+      return;
+    }
+
+    try {
+      const resp = await fetch(`/api/artworks/${encodeURIComponent(editingId)}/images/reorder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedUrls: [...albumPhotos] }),
+      });
+      if (resp.status === 401) {
+        showAuthGate("Prihlásenie vypršalo. Prihlás sa znova.");
+        return;
+      }
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !Array.isArray(data.detailImages)) {
+        throw new Error(data.error || ("HTTP " + resp.status));
+      }
+      albumPhotos = [...data.detailImages];
+      const curArt = artworks.find((a) => a.id === editingId);
+      if (curArt) {
+        curArt.coverImage = data.coverImage || albumPhotos[0] || "";
+        curArt.detailImages = [...albumPhotos];
+        curArt.photoCount = albumPhotos.length;
+        renderArtworkPublishPanel(curArt);
+      }
+      refreshCoverAndAlbumUI(`✓ Poradie fotiek uložené (#${fromIdx + 1} → #${toIdx + 1})`);
+      renderInventory();
+    } catch (err) {
+      showStatusMsg("Nepodarilo sa uložiť poradie fotiek: " + err.message, true);
+    }
+  }
+
+  function startPhotoDrag(e, sourceCard, fromIdx, opts = {}) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (albumPhotos.length < 2 || photoDragState) return;
+    const immediate = Boolean(opts.immediate);
+    if (immediate) e.preventDefault();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let activated = false;
+    let ghostEl = null;
+    let ghostPosEl = null;
+    let insertSlot = fromIdx;
+    let toIdx = fromIdx;
+
+    const clearPhotoIndicators = () => {
+      if (!dom.photoGrid) return;
+      dom.photoGrid.querySelectorAll(".adm-photo-item").forEach((el) => {
+        el.classList.remove("adm-photo-drop-before", "adm-photo-drop-after");
+      });
+    };
+
+    const activateDrag = () => {
+      if (activated) return;
+      activated = true;
+      suppressNextPhotoClick = true;
+
+      const srcUrl = albumPhotos[fromIdx] || "";
+      ghostEl = document.createElement("div");
+      ghostEl.className = "adm-photo-drag-ghost";
+      const gImg = document.createElement("img");
+      gImg.src = srcUrl.startsWith("data:") ? (pendingThumbMap[srcUrl] || srcUrl) : toThumbUrl(srcUrl);
+      gImg.alt = "";
+      ghostPosEl = document.createElement("span");
+      ghostPosEl.textContent = `→ #${fromIdx + 1}`;
+      ghostEl.appendChild(gImg);
+      ghostEl.appendChild(ghostPosEl);
+      document.body.appendChild(ghostEl);
+
+      sourceCard.classList.add("adm-photo-dragging");
+      document.body.classList.add("adm-is-dragging");
+      photoDragState = { active: true };
+    };
+
+    const updateTarget = (cx, cy) => {
+      if (!dom.photoGrid || !activated) return;
+      const cards = Array.from(dom.photoGrid.querySelectorAll(".adm-photo-item"));
+      clearPhotoIndicators();
+      if (cards.length === 0) return;
+
+      let bestCard = null;
+      let bestDist = Infinity;
+      let insideCard = null;
+
+      cards.forEach((c) => {
+        const r = c.getBoundingClientRect();
+        if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) {
+          insideCard = c;
+        }
+        const mx = (r.left + r.right) / 2;
+        const my = (r.top + r.bottom) / 2;
+        const d = Math.hypot(cx - mx, cy - my);
+        if (d < bestDist) {
+          bestDist = d;
+          bestCard = c;
+        }
+      });
+
+      const targetCard = insideCard || bestCard;
+      if (targetCard) {
+        const targetIdx = cards.indexOf(targetCard);
+        const r = targetCard.getBoundingClientRect();
+        const isAfter = cx > (r.left + r.right) / 2;
+        insertSlot = isAfter ? targetIdx + 1 : targetIdx;
+        targetCard.classList.add(isAfter ? "adm-photo-drop-after" : "adm-photo-drop-before");
+      }
+
+      toIdx = Math.max(0, Math.min(albumPhotos.length - 1, insertSlot > fromIdx ? insertSlot - 1 : insertSlot));
+      if (ghostPosEl) ghostPosEl.textContent = `→ #${toIdx + 1}`;
+      if (ghostEl) {
+        const left = Math.min(Math.max(12, cx + 14), Math.max(12, window.innerWidth - 130));
+        const top = Math.min(Math.max(12, cy - 28), Math.max(12, window.innerHeight - 66));
+        ghostEl.style.left = `${left}px`;
+        ghostEl.style.top = `${top}px`;
+      }
+    };
+
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+      window.removeEventListener("keydown", onKeyDown);
+      clearPhotoIndicators();
+      sourceCard.classList.remove("adm-photo-dragging");
+      document.body.classList.remove("adm-is-dragging");
+      if (ghostEl && ghostEl.parentNode) ghostEl.remove();
+      photoDragState = null;
+      if (activated) {
+        setTimeout(() => { suppressNextPhotoClick = false; }, 120);
+      }
+    };
+
+    const onMove = (ev) => {
+      const dist = Math.hypot(ev.clientX - startX, ev.clientY - startY);
+      if (!activated) {
+        if (dist < (immediate ? 2 : 6)) return;
+        activateDrag();
+      }
+      updateTarget(ev.clientX, ev.clientY);
+    };
+
+    const onKeyDown = (ev) => {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        cleanup();
+      }
+    };
+
+    const onEnd = (ev) => {
+      const didActivate = activated;
+      const destIdx = toIdx;
+      cleanup();
+      if (ev.type === "pointerup" && didActivate && destIdx !== fromIdx) {
+        const [moved] = albumPhotos.splice(fromIdx, 1);
+        albumPhotos.splice(destIdx, 0, moved);
+        persistAlbumPhotoOrder(fromIdx, destIdx);
+      }
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+    window.addEventListener("keydown", onKeyDown);
+
+    if (immediate) {
+      activateDrag();
+      updateTarget(startX, startY);
+    }
+  }
+
   // ---- Album Photo Grid & Preview Refresh ----
   function refreshCoverAndAlbumUI(statusHint) {
     const coverSrc = albumPhotos[0] || "";
@@ -1058,40 +1281,70 @@
     }
 
     dom.albumSection.style.display = "block";
-    if (dom.photoCount) dom.photoCount.textContent = `(${albumPhotos.length})`;
+    if (dom.photoCount) {
+      dom.photoCount.textContent = albumPhotos.length > 10
+        ? `(${albumPhotos.length} — prvých 10 sa nahráva)`
+        : `(${albumPhotos.length})`;
+    }
     dom.photoGrid.innerHTML = "";
 
     albumPhotos.forEach((url, idx) => {
       const card = document.createElement("div");
       const isSocial = Boolean(currentSocialImageUrl && url === currentSocialImageUrl);
-      card.className = `adm-photo-item${idx === 0 ? " is-cover" : ""}${isSocial ? " is-social" : ""}`;
+      const isOverLimit = idx >= 10;
+      card.className = `adm-photo-item${idx === 0 ? " is-cover" : ""}${isSocial ? " is-social" : ""}${isOverLimit ? " is-over-limit" : ""}`;
+      card.dataset.photoIdx = String(idx);
       const thumbSrc = url.startsWith("data:") ? (pendingThumbMap[url] || url) : toThumbUrl(url);
       card.innerHTML = `
-        <img src="${thumbSrc}" alt="Foto ${idx + 1}" loading="lazy" decoding="async" title="Kliknutím nastavíš ako Titulnú">
-        ${idx === 0 ? '<span class="adm-photo-badge">Titulná</span>' : ""}
-        ${isSocial ? '<span class="adm-photo-badge social">📱 Soc. siete</span>' : ""}
+        <img src="${thumbSrc}" alt="Foto ${idx + 1}" loading="lazy" decoding="async" title="${idx === 0 ? "Titulná fotka (potiahnutím zmeníš poradie)" : "Kliknutím nastavíš ako Titulnú (#1) alebo potiahni pre poradie"}">
         <div class="adm-photo-tools">
-          <button type="button" class="adm-photo-tool${isSocial ? " is-active" : ""}" data-action="social" title="${isSocial ? "Zrušiť výber pre sociálne siete" : "Použiť túto fotku na sociálne siete (IG / FB)"}">📱</button>
+          <button type="button" class="adm-photo-tool${isSocial ? " is-active" : ""}" data-action="social" title="${isSocial ? "Zrušiť výber 1. fotky pre sociálne siete" : "Nastaviť ako 1. fotku pre sociálne siete (IG / FB / Threads / TikTok / Pinterest / X)"}">📱</button>
           <button type="button" class="adm-photo-tool" data-action="crop" title="4-bodový orez (vytvorí kópiu)">📐</button>
           <button type="button" class="adm-photo-tool" data-action="cover3d" title="3D Cover Studio (vytvorí kópiu)">✨</button>
           <button type="button" class="adm-photo-tool danger" data-action="remove" title="Odstrániť z albumu">✕</button>
         </div>
+        <div class="adm-photo-footer">
+          <button type="button" class="adm-photo-drag-handle" title="Potiahni pre zmenu poradia fotky v albume" aria-label="Presunúť fotku #${idx + 1}">⋮⋮ #${idx + 1}</button>
+          <div class="adm-photo-pills">
+            ${idx === 0 ? '<span class="adm-photo-pill cover">Titulná</span>' : ""}
+            ${isSocial ? '<span class="adm-photo-pill social">📱</span>' : ""}
+            ${isOverLimit ? '<span class="adm-photo-pill limit" title="Mimo limitu prvých 10 fotiek pre upload">mimo 10</span>' : ""}
+          </div>
+        </div>
       `;
 
-      card.querySelector("img").addEventListener("click", () => {
+      const imgEl = card.querySelector("img");
+      imgEl.addEventListener("pointerdown", (e) => {
+        if (e.pointerType === "mouse") {
+          startPhotoDrag(e, card, idx, { immediate: false });
+        }
+      });
+      imgEl.addEventListener("click", () => {
+        if (suppressNextPhotoClick) {
+          suppressNextPhotoClick = false;
+          return;
+        }
         if (idx === 0) return;
         const picked = albumPhotos.splice(idx, 1)[0];
         albumPhotos.unshift(picked);
-        refreshCoverAndAlbumUI("✓ Zvolená nová titulná fotka (klikni na Uložiť)");
+        persistAlbumPhotoOrder(idx, 0, "✓ Zvolená nová titulná fotka (#1)");
       });
+
+      const handleEl = card.querySelector(".adm-photo-drag-handle");
+      if (handleEl) {
+        handleEl.addEventListener("pointerdown", (e) => {
+          e.stopPropagation();
+          startPhotoDrag(e, card, idx, { immediate: true });
+        });
+      }
 
       card.querySelector('[data-action="social"]').addEventListener("click", (e) => {
         e.stopPropagation();
         currentSocialImageUrl = (currentSocialImageUrl === url) ? "" : url;
         refreshCoverAndAlbumUI(
           currentSocialImageUrl
-            ? "📱 Vybraná fotka pre sociálne siete (klikni na Uložiť)"
-            : "Zrušený výber — pre sociálne siete sa použije titulná fotka (klikni na Uložiť)"
+            ? "📱 Vybraná 1. fotka pre sociálne siete (klikni na Uložiť)"
+            : "Zrušený výber — pre sociálne siete sa použije poradie od #1 (klikni na Uložiť)"
         );
         if (editingId) {
           const curArt = artworks.find((a) => a.id === editingId);
@@ -1965,6 +2218,48 @@
     });
     if (dom.publishNowBtn) {
       dom.publishNowBtn.addEventListener("click", publishNowForArtwork);
+    }
+    if (dom.integUnlockForm) {
+      dom.integUnlockForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (dom.integUnlockErr) dom.integUnlockErr.style.display = "none";
+        const password = dom.integUnlockPass ? dom.integUnlockPass.value : "";
+        if (!password) return;
+        const origText = dom.integUnlockBtn ? dom.integUnlockBtn.textContent : "";
+        if (dom.integUnlockBtn) {
+          dom.integUnlockBtn.disabled = true;
+          dom.integUnlockBtn.textContent = "⏳ Overujem…";
+        }
+        try {
+          const resp = await fetch("/api/auth/verify-password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password }),
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.verified) {
+            throw new Error(data.error || "Nesprávne heslo správcu.");
+          }
+          setIntegrationsUnlocked(true);
+          showAutoMsg("🔓 Technické nastavenia integrácií boli odomknuté.");
+        } catch (err) {
+          if (dom.integUnlockErr) {
+            dom.integUnlockErr.textContent = err.message || "Overenie zlyhalo.";
+            dom.integUnlockErr.style.display = "block";
+          }
+        } finally {
+          if (dom.integUnlockBtn) {
+            dom.integUnlockBtn.disabled = false;
+            dom.integUnlockBtn.textContent = origText;
+          }
+        }
+      });
+    }
+    if (dom.integLockBtn) {
+      dom.integLockBtn.addEventListener("click", () => {
+        setIntegrationsUnlocked(false);
+        showAutoMsg("🔒 Technické nastavenia boli znova zamknuté.");
+      });
     }
     if (dom.refreshTokensBtn) {
       dom.refreshTokensBtn.addEventListener("click", async () => {

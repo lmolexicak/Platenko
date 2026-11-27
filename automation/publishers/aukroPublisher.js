@@ -1,4 +1,4 @@
-import { BasePublisherAdapter } from "./baseAdapter.js";
+import { BasePublisherAdapter, MAX_PUBLISH_PHOTOS, resolveOrderedPhotos } from "./baseAdapter.js";
 import { buildMarketplaceDescription } from "../captionBuilder.js";
 
 class AukroAdapter extends BasePublisherAdapter {
@@ -8,6 +8,7 @@ class AukroAdapter extends BasePublisherAdapter {
       label: "Aukro",
       kind: "marketplace",
       imageVariant: "clean",
+      maxPhotos: MAX_PUBLISH_PHOTOS,
       implemented: true,
       requiredEnv: ["AUKRO_ACCESS_TOKEN"],
     });
@@ -50,7 +51,8 @@ class AukroAdapter extends BasePublisherAdapter {
     if (!(price > 0)) {
       throw new Error(`Dielo „${artwork.title}" nemá zadanú cenu pre Aukro (ani základnú cenu EUR) v Admin CMS.`);
     }
-    if (!artwork.cleanImageUrl) {
+    const photoUrls = resolveOrderedPhotos(artwork, "marketplace", this.maxPhotos);
+    if (photoUrls.length === 0) {
       throw new Error("Chýba čistá fotka diela pre Aukro.");
     }
 
@@ -58,25 +60,29 @@ class AukroAdapter extends BasePublisherAdapter {
     if (dryRun) {
       return {
         status: "pending",
-        note: `[DRY-RUN] Aukro (${asDraft ? "koncept" : "aktívna ponuka"}): ${artwork.title}, ${price} €`,
+        photoCount: photoUrls.length,
+        note: `[DRY-RUN] Aukro (${asDraft ? "koncept" : "aktívna ponuka"}, ${photoUrls.length} fotiek): ${artwork.title}, ${price} €`,
       };
     }
 
     const token = await this.ensureAccessToken(env);
-    const imgBuf = await apiClient.downloadImageBuffer(artwork.cleanImageUrl);
-
-    // 1. Upload clean image
-    const imgResp = await fetch(`${base}/offers/images`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "image/jpeg",
-      },
-      body: imgBuf,
-    });
-    const imgData = await imgResp.json().catch(() => ({}));
-    if (!imgResp.ok) {
-      throw new Error(imgData.message || `Aukro upload obrázka HTTP ${imgResp.status}`);
+    const uploadedImages = [];
+    for (const url of photoUrls) {
+      const imgBuf = await apiClient.downloadImageBuffer(url);
+      const imgResp = await fetch(`${base}/offers/images`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "image/jpeg",
+        },
+        body: imgBuf,
+      });
+      const imgData = await imgResp.json().catch(() => ({}));
+      if (!imgResp.ok) {
+        throw new Error(imgData.message || `Aukro upload obrázka HTTP ${imgResp.status}`);
+      }
+      if (imgData.url) uploadedImages.push({ url: imgData.url });
+      else if (imgData.id) uploadedImages.push({ id: imgData.id });
     }
 
     // 2. Create offer (inactive/draft by default for safety)
@@ -88,7 +94,7 @@ class AukroAdapter extends BasePublisherAdapter {
         amount: price,
         currency: env.AUKRO_DEFAULT_CURRENCY || "EUR",
       },
-      images: imgData.url ? [{ url: imgData.url }] : (imgData.id ? [{ id: imgData.id }] : []),
+      images: uploadedImages,
       active: !asDraft,
     };
 
@@ -109,6 +115,8 @@ class AukroAdapter extends BasePublisherAdapter {
       status: asDraft ? "drafted" : "published",
       externalId: String(offerData.id),
       url: offerData.url || "",
+      photoCount: uploadedImages.length,
+      note: `Aukro (${uploadedImages.length} fotiek)`,
     };
   }
 }
