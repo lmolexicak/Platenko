@@ -1,4 +1,4 @@
-import { jsonResponse, getAuthSession, toAbsoluteUrl, escapeHtml } from './utils.js';
+import { jsonResponse, getAuthSession, toAbsoluteUrl, escapeHtml, parseCookies, PUBLIC_API_CACHE_CONTROL } from './utils.js';
 
 let siteSchemaReady = false;
 
@@ -72,7 +72,7 @@ export async function serveIndexWithDynamicOG(request, env, url) {
 
     if (dieloId) {
       art = await env.DB.prepare(
-        `SELECT id, title, dimensions, medium, description, cover_image FROM artworks WHERE id = ?`
+        `SELECT id, title, dimensions, medium, description, cover_image, social_image_url, cover_aspect_ratio FROM artworks WHERE id = ?`
       )
         .bind(dieloId)
         .first();
@@ -82,11 +82,31 @@ export async function serveIndexWithDynamicOG(request, env, url) {
     const defaultTitle = `${brand} | ${settings.brandSubtitle || 'Abstraktné akrylové maľby na plátne'}`;
     const defaultDesc = settings.heroSubtitle || DEFAULT_SITE_SETTINGS.heroSubtitle;
 
+    const buildOgImageUrl = (rawImg) => {
+      const abs = toAbsoluteUrl(url.origin, rawImg);
+      if (!abs) return '';
+      try {
+        const parsed = new URL(abs);
+        if (
+          parsed.origin === url.origin &&
+          (parsed.pathname.startsWith('/images/paintings/') || parsed.pathname.startsWith('/paintings/'))
+        ) {
+          parsed.searchParams.set('size', 'thumb');
+        }
+        return parsed.toString();
+      } catch {
+        return abs;
+      }
+    };
+
     let pageTitle = defaultTitle;
     let pageDesc = defaultDesc;
     let ogTitle = defaultTitle;
     let ogDesc = defaultDesc;
     let ogImage = `${url.origin}/images/logo_only_IG_transparent.png`;
+    let ogImgWidth = 512;
+    let ogImgHeight = 512;
+    let ogImgAlt = `${brand} — ${settings.brandSubtitle || 'Originálne maľby na plátne'}`;
     let ogUrl = `${url.origin}/`;
 
     if (art) {
@@ -99,23 +119,44 @@ export async function serveIndexWithDynamicOG(request, env, url) {
         : `Originálna maľba „${art.title}“ (${dims}, ${medium}) od ${brand}.`;
       ogTitle = `${art.title} (${dims}) · ${brand}`;
       ogDesc = pageDesc;
-      if (art.cover_image) {
-        ogImage = toAbsoluteUrl(url.origin, art.cover_image);
+      const preferredImg = (art.social_image_url || art.cover_image || '').trim();
+      if (preferredImg) {
+        const resolvedImg = buildOgImageUrl(preferredImg);
+        if (resolvedImg) ogImage = resolvedImg;
       }
+      const ratio = Number(art.cover_aspect_ratio);
+      if (Number.isFinite(ratio) && ratio > 0) {
+        if (ratio >= 1) {
+          ogImgWidth = 800;
+          ogImgHeight = Math.max(1, Math.round(800 / ratio));
+        } else {
+          ogImgWidth = Math.max(1, Math.round(800 * ratio));
+          ogImgHeight = 800;
+        }
+      } else {
+        ogImgWidth = 800;
+        ogImgHeight = 800;
+      }
+      ogImgAlt = `${art.title} — ${dims} (${brand})`;
       ogUrl = `${url.origin}/?dielo=${encodeURIComponent(art.id)}`;
     }
 
     const ogTagsHtml = `
+  <link rel="canonical" href="${escapeHtml(ogUrl)}">
   <meta property="og:type" content="${art ? 'article' : 'website'}">
   <meta property="og:site_name" content="${escapeHtml(brand)}">
   <meta property="og:title" content="${escapeHtml(ogTitle)}">
   <meta property="og:description" content="${escapeHtml(ogDesc)}">
   <meta property="og:image" content="${escapeHtml(ogImage)}">
+  <meta property="og:image:width" content="${ogImgWidth}">
+  <meta property="og:image:height" content="${ogImgHeight}">
+  <meta property="og:image:alt" content="${escapeHtml(ogImgAlt)}">
   <meta property="og:url" content="${escapeHtml(ogUrl)}">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${escapeHtml(ogTitle)}">
   <meta name="twitter:description" content="${escapeHtml(ogDesc)}">
-  <meta name="twitter:image" content="${escapeHtml(ogImage)}">`;
+  <meta name="twitter:image" content="${escapeHtml(ogImage)}">
+  <meta name="twitter:image:alt" content="${escapeHtml(ogImgAlt)}">`;
 
     const rewritten = new HTMLRewriter()
       .on('title', {
@@ -154,7 +195,11 @@ export async function handleSiteRequest(request, env, url, pathname) {
   if (pathname === '/api/site-settings' && request.method === 'GET') {
     try {
       const settings = await getSiteSettings(env);
-      return jsonResponse(settings);
+      const hasAdminCookie = Boolean(parseCookies(request).platenko_session);
+      const cacheHeaders = hasAdminCookie
+        ? {}
+        : { 'Cache-Control': PUBLIC_API_CACHE_CONTROL, 'Vary': 'Cookie' };
+      return jsonResponse(settings, 200, cacheHeaders);
     } catch (err) {
       return jsonResponse({ error: err.message }, 500);
     }

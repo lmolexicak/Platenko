@@ -1,6 +1,6 @@
 // Cloudflare Worker Entry Router for Plátenko Gallery
 import {
-  CORS_HEADERS,
+  PUBLIC_MEDIA_CORS_HEADERS,
   jsonResponse,
   bytesToHex,
   timingSafeEqualHex,
@@ -14,18 +14,42 @@ import { handleLookupsRequest } from './src/lookups.js';
 import { handleAutomationRequest, refreshExpiringIntegrations } from './src/automation.js';
 import { handleArtworksRequest } from './src/artworks.js';
 
+const etagMatches = (ifNoneMatch, etag) => {
+  if (!ifNoneMatch || !etag) return false;
+  const trimmed = ifNoneMatch.trim();
+  if (trimmed === '*') return true;
+  const normalize = (val) => val.trim().replace(/^W\//i, '').replace(/^"|"$/g, '');
+  const target = normalize(etag);
+  return trimmed.split(',').some((part) => normalize(part) === target);
+};
+
 export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(refreshExpiringIntegrations(env, { force: false }));
   },
 
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const pathname = url.pathname;
     const isHttps = url.protocol === 'https:';
 
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: CORS_HEADERS });
+      if (pathname.startsWith('/images/paintings/') || pathname.startsWith('/paintings/')) {
+        return new Response(null, { status: 204, headers: PUBLIC_MEDIA_CORS_HEADERS });
+      }
+      const reqOrigin = request.headers.get('Origin');
+      if (reqOrigin && reqOrigin === url.origin) {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            'Access-Control-Allow-Origin': url.origin,
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+            'Vary': 'Origin',
+          },
+        });
+      }
+      return new Response(null, { status: 204 });
     }
 
     // 1. Dynamic Open Graph & Site Settings injection for landing HTML
@@ -33,11 +57,50 @@ export default {
       return serveIndexWithDynamicOG(request, env, url);
     }
 
-    // 2. Direct R2 media proxy with ?size=thumb + immutable caching
+    // 1b. Protected Admin Changelog (/whatsnew.md requires authenticated admin session)
+    if (pathname.toLowerCase() === '/whatsnew.md') {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        return jsonResponse({ error: 'Method Not Allowed' }, 405);
+      }
+      const session = await getAuthSession(env, request);
+      if (!session.authenticated) {
+        return jsonResponse({ error: 'Unauthorized' }, 401);
+      }
+      if (env.ASSETS) {
+        const assetResp = await env.ASSETS.fetch(request);
+        const headers = new Headers(assetResp.headers);
+        headers.set('Cache-Control', 'private, no-store');
+        if (assetResp.ok) {
+          headers.set('Content-Type', 'text/markdown; charset=utf-8');
+        }
+        return new Response(request.method === 'HEAD' ? null : assetResp.body, {
+          status: assetResp.status,
+          headers,
+        });
+      }
+      return jsonResponse({ error: 'Not found' }, 404);
+    }
+
+    // 2. Direct R2 media proxy with ?size=thumb + Cache API + ETag/304
     if (
       (request.method === 'GET' || request.method === 'HEAD') &&
       (pathname.startsWith('/images/paintings/') || pathname.startsWith('/paintings/'))
     ) {
+      const cache = typeof caches !== 'undefined' ? caches.default : null;
+      const cacheKey = new Request(url.toString(), { method: 'GET' });
+      const ifNoneMatch = request.headers.get('If-None-Match');
+
+      const cachedResp = cache ? await cache.match(cacheKey) : null;
+      if (cachedResp) {
+        if (etagMatches(ifNoneMatch, cachedResp.headers.get('etag'))) {
+          return new Response(null, { status: 304, headers: cachedResp.headers });
+        }
+        if (request.method === 'HEAD') {
+          return new Response(null, { status: cachedResp.status, headers: cachedResp.headers });
+        }
+        return cachedResp;
+      }
+
       const rawKey = pathname.startsWith('/images/')
         ? pathname.substring('/images/'.length)
         : pathname.substring(1);
@@ -69,10 +132,10 @@ export default {
       }
 
       if (!object) {
-        return new Response('Image not found in R2', { status: 404, headers: CORS_HEADERS });
+        return new Response('Image not found in R2', { status: 404, headers: PUBLIC_MEDIA_CORS_HEADERS });
       }
 
-      const headers = new Headers(CORS_HEADERS);
+      const headers = new Headers(PUBLIC_MEDIA_CORS_HEADERS);
       object.writeHttpMetadata(headers);
       if (!headers.has('Content-Type')) {
         const lower = key.toLowerCase();
@@ -84,7 +147,22 @@ export default {
       headers.set('Cache-Control', 'public, max-age=31536000, immutable');
       headers.set('X-Platenko-Image', imageSourceHeader);
 
-      return new Response(request.method === 'HEAD' ? null : object.body, { headers });
+      if (etagMatches(ifNoneMatch, object.httpEtag)) {
+        if (object.body && typeof object.body.cancel === 'function') {
+          object.body.cancel();
+        }
+        return new Response(null, { status: 304, headers });
+      }
+
+      if (request.method === 'HEAD') {
+        return new Response(null, { status: 200, headers });
+      }
+
+      const resp = new Response(object.body, { status: 200, headers });
+      if (cache && ctx && typeof ctx.waitUntil === 'function') {
+        ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+      }
+      return resp;
     }
 
     // 3. Auth Endpoints (/api/auth/*)
@@ -265,6 +343,6 @@ export default {
       return env.ASSETS.fetch(request);
     }
 
-    return new Response('Not found', { status: 404, headers: CORS_HEADERS });
+    return new Response('Not found', { status: 404 });
   },
 };

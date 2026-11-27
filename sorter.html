@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261127g">
-  <link rel="stylesheet" href="admin.css?v=20261127g">
+  <link rel="stylesheet" href="styles.css?v=20261127j">
+  <link rel="stylesheet" href="admin.css?v=20261127j">
   <style>
     .sorter-container { max-width: 1200px; margin: 20px auto 80px; padding: 0 24px; }
     
@@ -216,7 +216,6 @@
     </div>
   </div>
 
-  <script src="artworks.js"></script>
   <script>
     const deletedIds = new Set(JSON.parse(localStorage.getItem("platenko_deleted_ids") || "[]"));
     let usingCloudAPI = false;
@@ -663,29 +662,26 @@
         }
         if (!artResp.ok) throw new Error("HTTP " + artResp.status);
         const data = await artResp.json();
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           usingCloudAPI = true;
           list = data;
           renderTable(searchInput.value.trim());
           return;
         }
-        throw new Error("Empty API response");
+        throw new Error("Neplatná odpoveď API");
       } catch (err) {
-        console.warn("API load failed, falling back to local data:", err);
+        console.warn("API load failed:", err);
         usingCloudAPI = false;
-        const customStored = localStorage.getItem("platenko_artworks_custom");
-        let baseList = [];
-        if (customStored) {
-          try {
-            const parsed = JSON.parse(customStored);
-            if (Array.isArray(parsed) && parsed.length > 0) baseList = parsed;
-          } catch (e) {}
+        list = [];
+        if (tbody) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="7" style="text-align:center;padding:48px 16px;color:var(--text-muted);">
+                <p style="margin:0 0 12px;color:var(--text-main);font-weight:500;">⚠️ Katalóg sa nepodarilo načítať.</p>
+                <button type="button" class="btn-save-export" onclick="loadFromAPI()">Skúsiť znova</button>
+              </td>
+            </tr>`;
         }
-        if (baseList.length === 0) {
-          baseList = Array.isArray(artworksData) ? JSON.parse(JSON.stringify(artworksData)) : [];
-        }
-        list = baseList.filter(item => !deletedIds.has(item.id));
-        renderTable(searchInput.value.trim());
       }
     }
 

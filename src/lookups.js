@@ -1,4 +1,6 @@
-import { jsonResponse, getAuthSession } from './utils.js';
+import { jsonResponse, getAuthSession, parseCookies, PUBLIC_API_CACHE_CONTROL } from './utils.js';
+
+let lookupsReady = false;
 
 const DEFAULT_LOOKUPS = [
   { category: 'technique', code: 'Pouring', label: 'Pouring', color: '', meta: '', show_in_filter: 1, sort_order: 1 },
@@ -23,6 +25,7 @@ const DEFAULT_LOOKUPS = [
 ];
 
 export const ensureLookupsReady = async (env) => {
+  if (lookupsReady) return;
   await env.DB.batch([
     env.DB.prepare(`
       CREATE TABLE IF NOT EXISTS lookups (
@@ -50,6 +53,7 @@ export const ensureLookupsReady = async (env) => {
     );
     await env.DB.batch(stmts);
   }
+  lookupsReady = true;
 };
 
 const serializeLookupRow = (r) => {
@@ -86,13 +90,17 @@ export async function handleLookupsRequest(request, env, pathname) {
         `SELECT * FROM lookups ORDER BY sort_order ASC, id ASC`
       ).all();
       const all = (results || []).map(serializeLookupRow);
+      const hasAdminCookie = Boolean(parseCookies(request).platenko_session);
+      const cacheHeaders = hasAdminCookie
+        ? {}
+        : { 'Cache-Control': PUBLIC_API_CACHE_CONTROL, 'Vary': 'Cookie' };
       return jsonResponse({
         techniques: all.filter((x) => x.category === 'technique'),
         statuses: all.filter((x) => x.category === 'status'),
         mediums: all.filter((x) => x.category === 'medium'),
         dimensionPresets: all.filter((x) => x.category === 'dimension_preset'),
         all,
-      });
+      }, 200, cacheHeaders);
     } catch (err) {
       return jsonResponse({ error: err.message }, 500);
     }

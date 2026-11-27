@@ -17,6 +17,15 @@ let automationSchemaReady = false;
 
 export const MAX_PUBLISH_PHOTOS = 10;
 
+const safeFetch = (url, options = {}, timeoutMs = 15000) => {
+  const signal = options.signal || (
+    typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(timeoutMs)
+      : undefined
+  );
+  return fetch(url, signal ? { ...options, signal } : options);
+};
+
 const DEFAULT_AUTOMATION_CHANNELS = [
   { channel_key: 'instagram', label: 'Instagram', kind: 'social', image_variant: 'stylized', adapter: 'meta_ig', implemented: 1, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 1 },
   { channel_key: 'facebook', label: 'Facebook', kind: 'social', image_variant: 'stylized', adapter: 'meta_fb', implemented: 1, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 2 },
@@ -287,7 +296,7 @@ const updateIntegrationRecord = async (env, provider, fieldsObj) => {
 const refreshAukroAccessToken = async (creds) => {
   const base = String(creds.apiBaseUrl || 'https://api.aukro.cz/v1').replace(/\/+$/, '');
   const authBasic = btoa(`${creds.clientId}:${creds.clientSecret}`);
-  const resp = await fetch(`${base}/oauth/token`, {
+  const resp = await safeFetch(`${base}/oauth/token`, {
     method: 'POST',
     headers: {
       Authorization: `Basic ${authBasic}`,
@@ -330,8 +339,12 @@ const testProviderConnection = async (env, provider) => {
       }
       const v = 'v21.0';
       const [fbResp, igResp] = await Promise.all([
-        fetch(`https://graph.facebook.com/${v}/${encodeURIComponent(creds.fbPageId)}?fields=id,name&access_token=${encodeURIComponent(creds.accessToken)}`),
-        fetch(`https://graph.facebook.com/${v}/${encodeURIComponent(creds.igUserId)}?fields=id,username&access_token=${encodeURIComponent(creds.accessToken)}`),
+        safeFetch(`https://graph.facebook.com/${v}/${encodeURIComponent(creds.fbPageId)}?fields=id,name`, {
+          headers: { Authorization: `Bearer ${creds.accessToken}` },
+        }),
+        safeFetch(`https://graph.facebook.com/${v}/${encodeURIComponent(creds.igUserId)}?fields=id,username`, {
+          headers: { Authorization: `Bearer ${creds.accessToken}` },
+        }),
       ]);
       const fbData = await fbResp.json().catch(() => ({}));
       const igData = await igResp.json().catch(() => ({}));
@@ -345,8 +358,9 @@ const testProviderConnection = async (env, provider) => {
       let expiresAt = (resolved.row && resolved.row.expires_at) || '';
       if (creds.appId && creds.appSecret) {
         try {
-          const dbgResp = await fetch(
-            `https://graph.facebook.com/${v}/debug_token?input_token=${encodeURIComponent(creds.accessToken)}&access_token=${encodeURIComponent(`${creds.appId}|${creds.appSecret}`)}`
+          const dbgResp = await safeFetch(
+            `https://graph.facebook.com/${v}/debug_token?input_token=${encodeURIComponent(creds.accessToken)}`,
+            { headers: { Authorization: `Bearer ${creds.appId}|${creds.appSecret}` } }
           );
           const dbgData = await dbgResp.json().catch(() => ({}));
           if (dbgResp.ok && dbgData.data && dbgData.data.expires_at) {
@@ -383,11 +397,11 @@ const testProviderConnection = async (env, provider) => {
       if (!token) {
         throw new Error('Vyplň Aukro Access Token alebo OAuth2 údaje.');
       }
-      let meResp = await fetch(`${base}/users/me`, {
+      let meResp = await safeFetch(`${base}/users/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (meResp.status === 404) {
-        meResp = await fetch(`${base}/offers?limit=1`, {
+        meResp = await safeFetch(`${base}/offers?limit=1`, {
           headers: { Authorization: `Bearer ${token}` },
         });
       }
@@ -459,7 +473,7 @@ export const refreshExpiringIntegrations = async (env, { force = false } = {}) =
           continue;
         }
         const exUrl = `https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${encodeURIComponent(creds.appId)}&client_secret=${encodeURIComponent(creds.appSecret)}&fb_exchange_token=${encodeURIComponent(creds.accessToken)}`;
-        const exResp = await fetch(exUrl);
+        const exResp = await safeFetch(exUrl);
         const exData = await exResp.json().catch(() => ({}));
         if (!exResp.ok || !exData.access_token) {
           throw new Error((exData.error && exData.error.message) || `Meta obnova tokenu HTTP ${exResp.status}`);
@@ -574,8 +588,9 @@ export const resolveArtworkPhotoList = (artwork, origin, mode = 'social', maxPho
 
 const pollMetaContainer = async (baseGraphUrl, containerId, accessToken, maxAttempts = 8, delayMs = 2000) => {
   for (let i = 0; i < maxAttempts; i++) {
-    const stResp = await fetch(
-      `${baseGraphUrl}/${encodeURIComponent(containerId)}?fields=status_code&access_token=${encodeURIComponent(accessToken)}`
+    const stResp = await safeFetch(
+      `${baseGraphUrl}/${encodeURIComponent(containerId)}?fields=status_code`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     const stData = await stResp.json().catch(() => ({}));
     if (stData.status_code === 'FINISHED' || stData.status_code === 'PUBLISHED') return;
@@ -615,7 +630,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
       let containerIdToPublish = '';
 
       if (photoUrls.length === 1) {
-        const createResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.igUserId)}/media`, {
+        const createResp = await safeFetch(`${igGraphBase}/${encodeURIComponent(creds.igUserId)}/media`, {
           method: 'POST',
           body: new URLSearchParams({
             image_url: photoUrls[0],
@@ -632,7 +647,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
       } else {
         const childIds = [];
         for (const imgUrl of photoUrls) {
-          const childResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.igUserId)}/media`, {
+          const childResp = await safeFetch(`${igGraphBase}/${encodeURIComponent(creds.igUserId)}/media`, {
             method: 'POST',
             body: new URLSearchParams({
               image_url: imgUrl,
@@ -648,7 +663,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
         }
         await Promise.all(childIds.map((cid) => pollMetaContainer(igGraphBase, cid, creds.accessToken, 6, 1500)));
 
-        const parentResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.igUserId)}/media`, {
+        const parentResp = await safeFetch(`${igGraphBase}/${encodeURIComponent(creds.igUserId)}/media`, {
           method: 'POST',
           body: new URLSearchParams({
             media_type: 'CAROUSEL',
@@ -665,7 +680,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
         containerIdToPublish = parentData.id;
       }
 
-      const pubResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.igUserId)}/media_publish`, {
+      const pubResp = await safeFetch(`${igGraphBase}/${encodeURIComponent(creds.igUserId)}/media_publish`, {
         method: 'POST',
         body: new URLSearchParams({
           creation_id: containerIdToPublish,
@@ -678,8 +693,9 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
       }
       let permalink = '';
       try {
-        const pResp = await fetch(
-          `${igGraphBase}/${pubData.id}?fields=permalink&access_token=${encodeURIComponent(creds.accessToken)}`
+        const pResp = await safeFetch(
+          `${igGraphBase}/${encodeURIComponent(pubData.id)}?fields=permalink`,
+          { headers: { Authorization: `Bearer ${creds.accessToken}` } }
         );
         const pData = await pResp.json().catch(() => ({}));
         if (pData && pData.permalink) permalink = pData.permalink;
@@ -697,7 +713,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
       throw new Error('Meta integrácia nie je nakonfigurovaná (chýba Access Token alebo FB Page ID).');
     }
     if (photoUrls.length === 1) {
-      const fbResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.fbPageId)}/photos`, {
+      const fbResp = await safeFetch(`${igGraphBase}/${encodeURIComponent(creds.fbPageId)}/photos`, {
         method: 'POST',
         body: new URLSearchParams({
           url: photoUrls[0],
@@ -721,7 +737,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
 
     const mediaFbIds = [];
     for (const imgUrl of photoUrls) {
-      const upResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.fbPageId)}/photos`, {
+      const upResp = await safeFetch(`${igGraphBase}/${encodeURIComponent(creds.fbPageId)}/photos`, {
         method: 'POST',
         body: new URLSearchParams({
           url: imgUrl,
@@ -743,7 +759,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
     mediaFbIds.forEach((fid, idx) => {
       feedParams.append(`attached_media[${idx}]`, JSON.stringify({ media_fbid: fid }));
     });
-    const feedResp = await fetch(`${igGraphBase}/${encodeURIComponent(creds.fbPageId)}/feed`, {
+    const feedResp = await safeFetch(`${igGraphBase}/${encodeURIComponent(creds.fbPageId)}/feed`, {
       method: 'POST',
       body: feedParams,
     });
@@ -793,7 +809,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
       if (!obj) continue;
       const imgBuf = await obj.arrayBuffer();
       const ct = (obj.httpMetadata && obj.httpMetadata.contentType) || 'image/jpeg';
-      const imgResp = await fetch(`${base}/offers/images`, {
+      const imgResp = await safeFetch(`${base}/offers/images`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -824,7 +840,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
       images: uploadedImages,
       active: !asDraft,
     };
-    const offerResp = await fetch(`${base}/offers`, {
+    const offerResp = await safeFetch(`${base}/offers`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -863,7 +879,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
 
     let creationId = '';
     if (photoUrls.length === 1) {
-      const cResp = await fetch(`${thBase}/threads`, {
+      const cResp = await safeFetch(`${thBase}/threads`, {
         method: 'POST',
         body: new URLSearchParams({
           media_type: 'IMAGE',
@@ -880,7 +896,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
     } else {
       const childIds = [];
       for (const imgUrl of photoUrls) {
-        const chResp = await fetch(`${thBase}/threads`, {
+        const chResp = await safeFetch(`${thBase}/threads`, {
           method: 'POST',
           body: new URLSearchParams({
             media_type: 'IMAGE',
@@ -895,7 +911,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
         }
         childIds.push(chData.id);
       }
-      const pResp = await fetch(`${thBase}/threads`, {
+      const pResp = await safeFetch(`${thBase}/threads`, {
         method: 'POST',
         body: new URLSearchParams({
           media_type: 'CAROUSEL',
@@ -911,7 +927,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
       creationId = pData.id;
     }
 
-    const pubResp = await fetch(`${thBase}/threads_publish`, {
+    const pubResp = await safeFetch(`${thBase}/threads_publish`, {
       method: 'POST',
       body: new URLSearchParams({
         creation_id: creationId,
@@ -959,7 +975,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
             url: u,
           })),
         };
-    const pinResp = await fetch('https://api.pinterest.com/v5/pins', {
+    const pinResp = await safeFetch('https://api.pinterest.com/v5/pins', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${creds.accessToken}`,
@@ -1000,7 +1016,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
     }
     if (photoUrls.length === 0) throw new Error('Dielo nemá fotku pre TikTok.');
     const caption = buildSocialCaptionServer(artwork, origin, siteSettings);
-    const tkResp = await fetch('https://open.tiktokapis.com/v2/post/publish/content/init/', {
+    const tkResp = await safeFetch('https://open.tiktokapis.com/v2/post/publish/content/init/', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${creds.accessToken}`,
@@ -1059,7 +1075,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
       const fd = new FormData();
       fd.append('media', new Blob([buf], { type: ct }), 'artwork.jpg');
       fd.append('media_category', 'tweet_image');
-      const mResp = await fetch('https://api.x.com/2/media/upload', {
+      const mResp = await safeFetch('https://api.x.com/2/media/upload', {
         method: 'POST',
         headers: { Authorization: `Bearer ${creds.accessToken}` },
         body: fd,
@@ -1072,7 +1088,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
       mediaIds.push(String(mid));
     }
 
-    const tweetResp = await fetch('https://api.x.com/2/tweets', {
+    const tweetResp = await safeFetch('https://api.x.com/2/tweets', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${creds.accessToken}`,
@@ -1120,7 +1136,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
       Authorization: `Bearer ${creds.accessToken}`,
       'Content-Type': 'application/json',
     };
-    const listingResp = await fetch(
+    const listingResp = await safeFetch(
       `https://openapi.etsy.com/v3/application/shops/${encodeURIComponent(creds.shopId)}/listings`,
       {
         method: 'POST',
@@ -1153,7 +1169,7 @@ const publishToSingleChannel = async (env, origin, artwork, channelRow, siteSett
       const fd = new FormData();
       fd.append('image', new Blob([buf], { type: ct }), `artwork_${i + 1}.jpg`);
       fd.append('rank', String(i + 1));
-      const imgResp = await fetch(
+      const imgResp = await safeFetch(
         `https://openapi.etsy.com/v3/application/shops/${encodeURIComponent(creds.shopId)}/listings/${listingId}/images`,
         {
           method: 'POST',

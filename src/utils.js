@@ -1,18 +1,20 @@
 // Shared Cloudflare Worker utilities (crypto, auth sessions, R2 media cleanup)
 
-export const CORS_HEADERS = {
+export const PUBLIC_MEDIA_CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
 };
+
+export const PUBLIC_API_CACHE_CONTROL = 'public, max-age=60, stale-while-revalidate=300';
 
 export const jsonResponse = (payload, status = 200, extraHeaders = {}) =>
   new Response(JSON.stringify(payload), {
     status,
     headers: {
-      ...CORS_HEADERS,
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
       ...extraHeaders,
     },
   });

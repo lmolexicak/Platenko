@@ -1,5 +1,6 @@
 import {
   jsonResponse,
+  PUBLIC_API_CACHE_CONTROL,
   parseJsonSafe,
   parseDimPair,
   getAuthSession,
@@ -38,6 +39,10 @@ export async function handleArtworksRequest(request, env, pathname) {
           delete item.publishChannels;
           delete item.rawImage;
         }
+        return jsonResponse(list, 200, {
+          'Cache-Control': PUBLIC_API_CACHE_CONTROL,
+          'Vary': 'Cookie',
+        });
       }
       return jsonResponse(list);
     } catch (err) {

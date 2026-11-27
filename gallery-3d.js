@@ -34,6 +34,8 @@
   let camera = null;
   let animRafId = null;
   let lastFrameTime = 0;
+  let needsRender = true;
+  let inAnimate = false;
   let roomCount = 1;
   let entries = []; // [{ index, art, roomIdx, dims, mesh, shadowMesh, frameGroup, washPlane, plaqueMesh, center, normal, loadedTexture, frontMat }]
   let raycastMeshes = [];
@@ -638,6 +640,7 @@
               entry.frontMat.color.setHex(0xffffff);
               entry.frontMat.map = tex;
               entry.frontMat.needsUpdate = true;
+              requestRender();
 
               // Auto-adjust default 50x70 orientation if photo is landscape
               if (tex.image && tex.image.naturalWidth > 0) {
@@ -657,6 +660,7 @@
         entry.loadedTexture.dispose();
         entry.loadedTexture = null;
         entry.loadingTexture = false;
+        requestRender();
       }
     });
   }
@@ -946,6 +950,7 @@
       moveTargetEntry = entry;
       camState = "moving";
       updateNavArrowsState();
+      requestRender();
     });
   }
 
@@ -1019,20 +1024,50 @@
     }
   }
 
+  function requestRender() {
+    needsRender = true;
+    if (!isMounted || document.hidden) return;
+    if (animRafId === null) {
+      lastFrameTime = 0;
+      animRafId = requestAnimationFrame(animate);
+    }
+  }
+
+  function onVisibilityChange() {
+    if (!isMounted) return;
+    if (document.hidden) {
+      if (animRafId !== null) {
+        cancelAnimationFrame(animRafId);
+        animRafId = null;
+      }
+      lastFrameTime = 0;
+    } else {
+      requestRender();
+    }
+  }
+
   function syncCameraTransform() {
     if (!camera || !camPos) return;
     camera.position.copy(camPos);
     camera.rotation.order = "YXZ";
     camera.rotation.y = camYaw;
     camera.rotation.x = camPitch;
+    if (inAnimate) {
+      needsRender = true;
+    } else {
+      requestRender();
+    }
   }
 
   function animate(now) {
-    if (!isMounted) return;
-    animRafId = requestAnimationFrame(animate);
+    animRafId = null;
+    if (!isMounted || document.hidden) return;
 
     const dt = lastFrameTime ? Math.min(0.05, (now - lastFrameTime) / 1000) : 0.016;
     lastFrameTime = now;
+    inAnimate = true;
+    let shouldRender = needsRender;
+    let shouldContinue = false;
 
     if (camState === "moving" && moveStartPos && moveEndPos) {
       moveElapsed += dt;
@@ -1061,6 +1096,7 @@
       camPitch = moveStartPitch + (moveEndPitch - moveStartPitch) * t;
       syncCameraTransform();
       updateRoomBadge();
+      shouldRender = true;
 
       if (rawT >= 1) {
         moveCurve = null;
@@ -1076,6 +1112,8 @@
           updateRoomBadge();
           updateNavArrowsState();
         }
+      } else {
+        shouldContinue = true;
       }
     } else if (camState === "free") {
       let changed = false;
@@ -1105,10 +1143,25 @@
       }
       if (changed) {
         syncCameraTransform();
+        shouldRender = true;
+      }
+      if (keysDown.size > 0 || Math.abs(camPos.y - EYE_HEIGHT) > 0.001) {
+        shouldContinue = true;
       }
     }
 
-    renderer.render(scene, camera);
+    inAnimate = false;
+
+    if (shouldRender) {
+      needsRender = false;
+      renderer.render(scene, camera);
+    }
+
+    if ((shouldContinue || needsRender) && isMounted && !document.hidden) {
+      animRafId = requestAnimationFrame(animate);
+    } else {
+      lastFrameTime = 0;
+    }
   }
 
   // ---- Input & Raycast Handlers ----
@@ -1208,6 +1261,7 @@
           camState = "moving";
           updateRoomBadge();
           updateNavArrowsState();
+          requestRender();
           if (callbacks.onLeaveArtwork) callbacks.onLeaveArtwork();
         });
       }
@@ -1219,6 +1273,7 @@
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    requestRender();
     if (camState === "focused" && focusedEntry) {
       alignCrossfadeOverlay(focusedEntry);
     }
@@ -1240,6 +1295,7 @@
       keysDown.add(e.code);
       if (isMoveKey) {
         setOverviewHintVisible(false);
+        requestRender();
         if (camState === "focused") {
           exitCrossfadeThen(() => {
             if (!isMounted) return;
@@ -1288,8 +1344,12 @@
       isMounted = true;
       disposables = [];
 
-      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      const isTouchDevice = Boolean(
+        (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
+        (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)
+      );
+      renderer = new THREE.WebGLRenderer({ antialias: !isTouchDevice, powerPreference: "high-performance" });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isTouchDevice ? 1.5 : 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1323,10 +1383,11 @@
       window.addEventListener("resize", onWindowResize);
       window.addEventListener("keydown", onKeyDown);
       window.addEventListener("keyup", onKeyUp);
+      document.addEventListener("visibilitychange", onVisibilityChange);
 
       el.loading.hidden = true;
       lastFrameTime = 0;
-      animRafId = requestAnimationFrame(animate);
+      requestRender();
 
       const targetId = opts && opts.initialArtworkId;
       const targetEntry = targetId ? entries.find((e) => e.art.id === targetId) : null;
@@ -1380,7 +1441,10 @@
     window.removeEventListener("resize", onWindowResize);
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
     keysDown.clear();
+    needsRender = false;
+    inAnimate = false;
 
     // Strict WebGL Memory Hygiene: dispose all geometries, materials, textures & renderer
     entries.forEach((e) => {

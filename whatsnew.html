@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261127g">
-  <link rel="stylesheet" href="admin.css?v=20261127g">
+  <link rel="stylesheet" href="styles.css?v=20261127j">
+  <link rel="stylesheet" href="admin.css?v=20261127j">
 </head>
 <body>
 
@@ -317,7 +317,11 @@
 
       async function loadChangelog() {
         try {
-          const resp = await fetch("/whatsnew.md?v=20261127c");
+          const resp = await fetch("/whatsnew.md?v=20261127j", { credentials: "same-origin" });
+          if (resp.status === 401) {
+            showAuthGate("Relácia vypršala, prihlás sa znova.");
+            return;
+          }
           if (!resp.ok) throw new Error("HTTP " + resp.status);
           const mdText = await resp.text();
           entries = parseChangelogMarkdown(mdText);

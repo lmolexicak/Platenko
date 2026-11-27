@@ -17,7 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const searchInput = document.getElementById("gallerySearchInput");
   const filterResetBtn = document.getElementById("galleryFilterResetBtn");
   const resultHintEl = document.getElementById("galleryResultHint");
-  const ASSET_VER = "20261127g";
+  const ASSET_VER = "20261127j";
   const loadedScriptPromises = new Map();
 
   const PAGE_SIZE = 24;
@@ -223,7 +223,7 @@ document.addEventListener("DOMContentLoaded", () => {
     updateSettingsUI();
   }
 
-  // 3. Data Access — loads from /api/artworks, falls back to artworksData
+  // 3. Data Access — loads from /api/artworks
   function getArtworksList() {
     return _masterArtworksList || [];
   }
@@ -268,19 +268,27 @@ document.addEventListener("DOMContentLoaded", () => {
       renderDynamicStatusFilters();
     }
 
-    if (artRes.status === "fulfilled" && Array.isArray(artRes.value) && artRes.value.length > 0) {
+    if (artRes.status === "fulfilled" && Array.isArray(artRes.value)) {
       _masterArtworksList = artRes.value;
-    } else {
-      console.warn("API load failed, lazy-loading static artworks.js fallback");
-      try {
-        await loadScriptOnce(`artworks.js?v=${ASSET_VER}`);
-      } catch {}
-      _masterArtworksList = (typeof artworksData !== "undefined" && Array.isArray(artworksData))
-        ? artworksData : [];
+      applyFiltersAndSearch();
+      handleInitialDeepLink();
+      return;
     }
 
-    applyFiltersAndSearch();
-    handleInitialDeepLink();
+    _masterArtworksList = [];
+    if (loadMoreWrap) loadMoreWrap.style.display = "none";
+    if (galleryGrid) {
+      galleryGrid.innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:80px 16px;color:var(--text-muted);">
+          <div style="font-size:2rem;margin-bottom:12px;">⚠️</div>
+          <p style="margin-bottom:16px;color:var(--text-main);font-weight:500;">Galériu sa nepodarilo načítať.</p>
+          <button type="button" id="retryGalleryLoadBtn" class="filter-btn active" style="padding:10px 20px;">Skúsiť znova</button>
+        </div>`;
+      const retryBtn = document.getElementById("retryGalleryLoadBtn");
+      if (retryBtn) {
+        retryBtn.addEventListener("click", () => loadArtworksFromAPI());
+      }
+    }
   }
 
   function handleInitialDeepLink() {
@@ -415,7 +423,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function clampRatio(r) {
     if (!Number.isFinite(r) || r <= 0) return 5 / 7;
-    return Math.min(2.3, Math.max(0.42, r));
+    return Math.min(3.2, Math.max(0.3, r));
   }
 
   function getInitialAspectRatio(art) {
@@ -586,17 +594,21 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderNextBatch() {
     const nextBatch = currentFilteredList.slice(displayedCount, displayedCount + PAGE_SIZE);
 
-    nextBatch.forEach((art) => {
+    nextBatch.forEach((art, batchIdx) => {
       const card = document.createElement("div");
       card.className = "artwork-card";
       card.id = `card-${art.id}`;
 
       const statusInfo = normalizeStatus(art.status);
       const photoCount = art.photoCount || (art.detailImages ? art.detailImages.length : 1);
+      const isPriorityCard = (displayedCount + batchIdx) < 6;
+      const imgLoadingAttrs = isPriorityCard
+        ? 'loading="eager" fetchpriority="high"'
+        : 'loading="lazy"';
 
       card.innerHTML = `
         <div class="card-image-wrap">
-          <img src="${toThumbUrl(art.coverImage)}" alt="${art.title}" loading="lazy" decoding="async">
+          <img src="${toThumbUrl(art.coverImage)}" alt="${art.title}" ${imgLoadingAttrs} decoding="async">
         </div>
         <div class="card-details">
           <div class="card-title-row">
