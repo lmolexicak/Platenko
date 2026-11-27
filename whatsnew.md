@@ -15,9 +15,10 @@ Kompletný chronologický prehľad všetkého, čo sme na projekte **Plátenko A
   - Moduly **3D galérie** (`gallery-3d.js`) a **WebAR** (`ar-viewer.js`) sa sťahujú až vo chvíli, keď ich návštevník naozaj otvorí.
   - Pomer strán obálky sa ukladá priamo v D1 (`cover_aspect_ratio`), takže grid pri načítaní neskáče.
 - **3-krokový Admin editor diela + ochrana neuložených zmien:**
-  1. `1. Fotka & Orez` (obálka, album s presúvaním, 90° rotácie, 4-bodový orez a 3D Cover Studio)
-  2. `2. Detaily & Rozmery` (názov, rozmery nad pohovkou, technika, popis, tagy)
-  3. `3. Publikovať (Web + Siete)` (stav viditeľnosti na webe, ceny podľa portálu, semafor pripravenosti a 1-klik `🚀 Publikovať teraz`)
+  1. `1. Fotka & Orez` (obálka, rozmery diela s náhľadom nad pohovkou, album s presúvaním, 90° rotácie, zvýraznený 4-bodový orez a 3D Cover Studio)
+  2. `2. Detaily` (názov, dátum, technika, médium, ceny podľa portálu, popis)
+  3. `3. Publikovať` (pripravenosť pre web a 1-klik `🚀 Publikovať teraz`)
+  - Zároveň sme odstránili zastaraný samostatný prototyp `studio.html`, keďže celý proces pridávania malieb je už plne v Admin CMS.
   - Na spodku editora pribudla fixná lišta s indikátorom **`● Neuložené zmeny`**, ktorá upozorní pred prepnutím diela alebo zatvorením okna.
 - **Rýchle filtre v katalógu diel:** nad zoznamom diel vpravo sú prepínače **`Všetky`**, **`Bez ceny`**, **`Nepublikované`** a **`Bez popisu`** spolu s mikro-odznakmi `€` / `🚀` pri každom obraze.
 - **Správa textov webu (`🌐 Web & Texty`):** v Admin CMS môžeš priamo upraviť názov a popis galérie, podnadpis, sekciu **O autorovi / O tvorbe**, kontaktný e-mail a hashtagy pre sociálne siete.

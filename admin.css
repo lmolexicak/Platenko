@@ -557,6 +557,9 @@ body.adm-is-dragging {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .adm-publish-head {
@@ -575,6 +578,7 @@ body.adm-is-dragging {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 6px 10px;
+  min-width: 0;
 }
 
 .adm-social-thumb-wrap img {
@@ -582,12 +586,14 @@ body.adm-is-dragging {
   height: 50px;
   object-fit: cover;
   border-radius: 4px;
+  flex-shrink: 0;
 }
 
 .adm-publish-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 6px;
+  min-width: 0;
 }
 
 .adm-pub-chip {
@@ -600,6 +606,8 @@ body.adm-is-dragging {
   border-radius: 8px;
   padding: 6px 8px;
   font-size: 0.76rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .adm-pub-chip-left {
@@ -689,6 +697,13 @@ body.adm-is-dragging {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+}
+
+.adm-publish-actions .btn-edit-save {
+  white-space: normal;
+  text-align: center;
+  line-height: 1.3;
 }
 
 .adm-publish-results {
@@ -1397,29 +1412,60 @@ body.adm-is-dragging {
    3-Tab Artwork Editor, Sticky Save Bar, Catalog Filters, Inquiries & Site Modal
    ========================================================================== */
 .adm-editor-tabs {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   background: var(--bg-subtle);
   padding: 5px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
   margin-bottom: 14px;
+  width: 100%;
+  max-width: 100%;
 }
 
 .adm-editor-tab {
-  flex: 1;
-  min-width: 110px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
   border: none;
   background: transparent;
   color: var(--text-muted);
-  padding: 8px 10px;
+  padding: 8px 6px;
   border-radius: 8px;
-  font-size: 0.82rem;
-  font-weight: 600;
   cursor: pointer;
   transition: var(--transition);
-  white-space: nowrap;
+  text-align: center;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.adm-tab-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.adm-tab-sub {
+  font-size: 0.68rem;
+  font-weight: 500;
+  opacity: 0.78;
+  line-height: 1.15;
+}
+
+@media (max-width: 480px) {
+  .adm-editor-tab {
+    padding: 7px 4px;
+  }
+  .adm-tab-title {
+    font-size: 0.73rem;
+  }
+  .adm-tab-sub {
+    font-size: 0.62rem;
+  }
 }
 
 .adm-editor-tab:hover {
@@ -1432,10 +1478,73 @@ body.adm-is-dragging {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
 }
 
+.adm-btn-crop,
+.adm-btn-3dcover {
+  padding: 7px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.adm-btn-crop {
+  border-color: #0d9488;
+  color: #0f766e;
+  background: rgba(13, 148, 136, 0.08);
+}
+
+.adm-btn-crop:hover {
+  border-color: #0d9488;
+  background: #0d9488;
+  color: #ffffff;
+}
+
+[data-theme="dark"] .adm-btn-crop {
+  color: #2dd4bf;
+  border-color: rgba(45, 212, 191, 0.55);
+  background: rgba(45, 212, 191, 0.12);
+}
+
+[data-theme="dark"] .adm-btn-crop:hover {
+  border-color: #0d9488;
+  background: #0d9488;
+  color: #ffffff;
+}
+
+.adm-btn-3dcover {
+  border-color: #6366f1;
+  color: #4f46e5;
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.adm-btn-3dcover:hover {
+  border-color: #6366f1;
+  background: #6366f1;
+  color: #ffffff;
+}
+
+[data-theme="dark"] .adm-btn-3dcover {
+  color: #818cf8;
+  border-color: rgba(129, 140, 248, 0.55);
+  background: rgba(129, 140, 248, 0.12);
+}
+
+[data-theme="dark"] .adm-btn-3dcover:hover {
+  border-color: #6366f1;
+  background: #6366f1;
+  color: #ffffff;
+}
+
 .adm-editor-panel {
   display: none;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.adm-editor-panel > *,
+.adm-dims-box {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .adm-editor-panel.active {
@@ -1559,6 +1668,7 @@ body.adm-is-dragging {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 6px;
+  min-width: 0;
 }
 
 .adm-readiness-item {
@@ -1570,6 +1680,9 @@ body.adm-is-dragging {
   display: flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  word-break: break-word;
 }
 
 .adm-readiness-item.ok {

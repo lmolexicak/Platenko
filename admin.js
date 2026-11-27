@@ -324,7 +324,7 @@
     (dom.editorPanels || []).forEach((p) => {
       p.classList.toggle("active", p.dataset.edPanel === activeEditorTab);
     });
-    if (activeEditorTab === "details") updateSofaPreview();
+    if (activeEditorTab === "photo") updateSofaPreview();
     if (activeEditorTab === "publish") renderWebReadiness();
   }
 

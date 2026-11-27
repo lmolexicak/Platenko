@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261127e">
-  <link rel="stylesheet" href="admin.css?v=20261127e">
+  <link rel="stylesheet" href="styles.css?v=20261127f">
+  <link rel="stylesheet" href="admin.css?v=20261127f">
 </head>
 <body>
 
@@ -82,14 +82,23 @@
         </div>
 
         <div class="adm-editor-tabs" role="tablist" aria-label="Sekcie editora diela">
-          <button type="button" class="adm-editor-tab active" data-ed-tab="photo" role="tab" aria-selected="true">📷 Fotka &amp; Orez</button>
-          <button type="button" class="adm-editor-tab" data-ed-tab="details" role="tab" aria-selected="false">📝 Detaily &amp; Rozmery</button>
-          <button type="button" class="adm-editor-tab" data-ed-tab="publish" role="tab" aria-selected="false">🚀 Publikovať (Web + Siete)</button>
+          <button type="button" class="adm-editor-tab active" data-ed-tab="photo" role="tab" aria-selected="true">
+            <span class="adm-tab-title">📷 1. Fotka &amp; Orez</span>
+            <span class="adm-tab-sub">Album · Rozmery</span>
+          </button>
+          <button type="button" class="adm-editor-tab" data-ed-tab="details" role="tab" aria-selected="false">
+            <span class="adm-tab-title">📝 2. Detaily</span>
+            <span class="adm-tab-sub">Názov · Ceny · Popis</span>
+          </button>
+          <button type="button" class="adm-editor-tab" data-ed-tab="publish" role="tab" aria-selected="false">
+            <span class="adm-tab-title">🚀 3. Publikovať</span>
+            <span class="adm-tab-sub">Web + Siete</span>
+          </button>
         </div>
 
         <form id="admArtworkForm" novalidate style="display: flex; flex-direction: column; gap: 16px;">
 
-          <!-- TAB 1: Fotka & Orez -->
+          <!-- TAB 1: Fotka, Orez & Rozmery -->
           <div class="adm-editor-panel active" data-ed-panel="photo">
             <div class="adm-upload-zone" id="admDropzone">
               <input type="file" id="cameraCaptureInput" accept="image/*" capture="environment" style="display: none;">
@@ -106,38 +115,15 @@
                 <div style="display: flex; flex-direction: column; gap: 8px; flex: 1;">
                   <span id="admCoverSourceTag" style="font-size: 0.78rem; color: var(--text-muted);"></span>
                   <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-                    <button type="button" id="admRewarpBtn" class="btn-secondary" style="padding: 7px 12px; font-size: 0.82rem;">
+                    <button type="button" id="admRewarpBtn" class="btn-secondary adm-btn-crop">
                       📐 4-bodový orez (kópia)
                     </button>
-                    <button type="button" id="admOpen3DCoverBtn" class="btn-secondary" style="padding: 7px 12px; font-size: 0.82rem; border-color: #6366f1; color: #6366f1;">
+                    <button type="button" id="admOpen3DCoverBtn" class="btn-secondary adm-btn-3dcover">
                       ✨ 3D Cover efekt (kópia)
                     </button>
                   </div>
                 </div>
               </div>
-            </div>
-
-            <!-- Album Photos Manager -->
-            <div class="adm-dims-box" id="admAlbumPhotosSection" style="display: none;">
-              <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
-                <div>
-                  <span class="edit-label" style="margin: 0;">📸 Fotografie v albume <span id="admPhotoCount" style="font-weight: normal; text-transform: none;"></span></span>
-                  <span style="font-size: 0.75rem; color: var(--text-muted);">Ťahaj ⋮⋮ pre poradie (do sietí/portálov ide prvých 10) · Kliknutím na fotku ju zvolíš ako Titulnú (#1) · 📱 označí 1. fotku pre sociálne siete.</span>
-                </div>
-                <div>
-                  <input type="file" id="admAddPhotosInput" accept="image/*" multiple style="display: none;">
-                  <button type="button" id="admAddPhotosBtn" class="preset-chip" style="padding: 6px 12px; font-size: 0.78rem;">＋ Pridať ďalšie fotky</button>
-                </div>
-              </div>
-              <div id="admPhotoGrid" class="adm-photo-grid"></div>
-            </div>
-          </div>
-
-          <!-- TAB 2: Detaily & Rozmery -->
-          <div class="adm-editor-panel" data-ed-panel="details">
-            <div>
-              <label class="edit-label" for="admTitle">Názov maľby</label>
-              <input type="text" id="admTitle" class="edit-input" placeholder="Napr. Zlatý úsvit v oblakoch" required>
             </div>
 
             <div class="adm-dims-box">
@@ -185,6 +171,29 @@
                 </div>
                 <span class="adm-sofa-caption" id="admPreviewLabel">Mierka 50 × 70 × 4 cm nad 220 cm pohovkou</span>
               </div>
+            </div>
+
+            <!-- Album Photos Manager -->
+            <div class="adm-dims-box" id="admAlbumPhotosSection" style="display: none;">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                <div>
+                  <span class="edit-label" style="margin: 0;">📸 Fotografie v albume <span id="admPhotoCount" style="font-weight: normal; text-transform: none;"></span></span>
+                  <span style="font-size: 0.75rem; color: var(--text-muted);">Ťahaj ⋮⋮ pre poradie (do sietí/portálov ide prvých 10) · Kliknutím na fotku ju zvolíš ako Titulnú (#1) · 📱 označí 1. fotku pre sociálne siete.</span>
+                </div>
+                <div>
+                  <input type="file" id="admAddPhotosInput" accept="image/*" multiple style="display: none;">
+                  <button type="button" id="admAddPhotosBtn" class="preset-chip" style="padding: 6px 12px; font-size: 0.78rem;">＋ Pridať ďalšie fotky</button>
+                </div>
+              </div>
+              <div id="admPhotoGrid" class="adm-photo-grid"></div>
+            </div>
+          </div>
+
+          <!-- TAB 2: Detaily -->
+          <div class="adm-editor-panel" data-ed-panel="details">
+            <div>
+              <label class="edit-label" for="admTitle">Názov maľby</label>
+              <input type="text" id="admTitle" class="edit-input" placeholder="Napr. Zlatý úsvit v oblakoch" required>
             </div>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">
@@ -706,8 +715,8 @@
     </div>
   </div>
 
-  <script src="perspective-warp.js?v=20261127e"></script>
-  <script src="cover-studio.js?v=20261127e"></script>
-  <script src="admin.js?v=20261127e"></script>
+  <script src="perspective-warp.js?v=20261127f"></script>
+  <script src="cover-studio.js?v=20261127f"></script>
+  <script src="admin.js?v=20261127f"></script>
 </body>
 </html>

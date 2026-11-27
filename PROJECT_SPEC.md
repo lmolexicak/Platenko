@@ -47,7 +47,6 @@ Architektúra je navrhnutá pre vizuálne orientované portfóliá a katalógy f
 - `perspective-warp.js` — interaktívny 4-bodový perspektívny výrez (projekčná homografia na `<canvas>`, 3× kruhová lupa, kolieskový zoom `1×–6×` na kurzor + pan, voľný alebo prehodený pomer strán)
 - `cover-studio.js` — štúdio 3D obálky s nakloneným plátnom a tieňom (vrátane 3× lupy a zoomu `1×–6×`)
 - `sorter.html` — vizuálny organizér poradia diel (`sort_order`) a hromadné zlučovanie albumov
-- `studio.html` — pôvodný samostatný sprievodca (legacy nástroj)
 
 ### Backend, Konfigurácia & Lokálna údržba
 - `worker.js` — Cloudflare Worker API + R2 media server
