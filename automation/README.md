@@ -1,6 +1,8 @@
-# Plátenko — Lokálny Automation Runner
+# Plátenko — Lokálny Runner pre Sashe.sk (Playwright)
 
-Lokálny Node.js balík (`/automation`) prepojený s Admin CMS (`🚀 Automatizácia`) na Cloudflare Worker API.
+**Instagram, Facebook a Aukro** sa publikujú priamo z **Cloudflare Workera na 1 klik v Admin CMS** (`🚀 Publikovať teraz`) aj z mobilu — bez zapnutého PC.
+
+Tento lokálny Node.js balík (`/automation`) slúži prioritne pre **Sashe.sk** (keďže nemá verejné API a vyžaduje prehliadač Playwright) a ako voliteľná záloha z príkazového riadka.
 
 ## Prvé nastavenie
 1. Nainštaluj závislosti:
@@ -9,19 +11,11 @@ Lokálny Node.js balík (`/automation`) prepojený s Admin CMS (`🚀 Automatiz�
    npm install
    npx playwright install chromium
    ```
-2. Skopíruj `.env.example` na `.env` a doplň `AUTOMATION_API_KEY` + kľúče pre siete, ktoré chceš používať.
-3. Rovnaký `AUTOMATION_API_KEY` nastav na Cloudflare Worker ako secret:
-   ```bash
-   npx wrangler secret put AUTOMATION_API_KEY
-   ```
-4. V **Admin CMS → 🚀 Automatizácia** zapni prepínače pre požadované siete a portály.
+2. Skopíruj `.env.example` na `.env` a doplň `AUTOMATION_API_KEY` (rovnaký nastav ako Cloudflare Secret: `npx wrangler secret put AUTOMATION_API_KEY`).
+3. V **Admin CMS → 🚀 Automatizácia → 🔑 Integrácie & Kľúče** ulož šifrované prístupy pre Meta a Aukro (pre šifrovanie v D1 nastav na Workeri secret `AUTOMATION_ENCRYPTION_KEY`).
 
 ## Príkazy
-- `npm run status` — suchý beh (`--dry-run`), vypíše zapnuté kanály a čakajúce diela bez odoslania
-- `npm run stylize` — vygeneruje a nahrá 4:5 obrázky s tieňom do R2 (`--stylize-only`)
-- `npm run publish-art` — spustí publikovanie na všetky kanály zapnuté v Admin CMS
-- `node run.js --artwork=art-... --ig --fb` — spracuje konkrétne dielo na vybraných sieťach
-
-## Pridanie novej sociálnej siete
-1. Implementuj adaptér v `publishers/` (rozšír `BasePublisherAdapter` alebo doplň existujúci stub v `publishers/socialStubs.js`).
-2. Zaregistruj ho v `publishers/registry.js` a nastav `implemented: 1` v `DEFAULT_AUTOMATION_CHANNELS` vo `worker.js`.
+- `node run.js --sashe` — otvorí Playwright a predvyplní čakajúce diela na Sashe.sk ako koncept
+- `node run.js --sashe --artwork=art-...` — predvyplní konkrétne dielo na Sashe.sk
+- `npm run status` — suchý beh (`--dry-run`), vypíše zapnuté kanály a čakajúce diela
+- `npm run stylize` — voliteľné lokálne generovanie 4:5 obrázka (`--stylize-only`), ak ho nevyberieš ručne cez 3D Cover Studio a tlačidlo `📱` v albume

@@ -2,77 +2,65 @@
 
 ## 1. Project Context & Goal
 We have an existing artist portfolio web application deployed on **Cloudflare** (Cloudflare Workers + static `[assets]`, Cloudflare D1 database, and Cloudflare R2 storage).
-The goal is to provide an automated, controllable multi-channel publishing pipeline so that whenever a new painting (clean, cropped canvas image + metadata) is uploaded to Admin CMS, the system can:
-1. Automatically generate a stylized social media version of the image (blurred & brightened background derived from the painting itself + centered original painting with a realistic 3D drop shadow, **4:5 portrait 1080×1350px**).
-2. Publish the stylized image + Slovak caption to **Instagram** and **Facebook** via Meta Graph API.
-3. Publish the clean image + listing details to **Aukro** via Aukro REST API (initially as draft/inactive by default).
-4. Run a local browser automation script (**Playwright**) to log into **Sashe.sk**, fill out the new product form with clean images and metadata, and pause/save as draft for one-click review.
-5. **Control every network/portal individually from Admin CMS (`🚀 Automatizácia`)** via ON/OFF switches stored in D1, plus per-artwork publish status & opt-out checkboxes.
-6. **Pre-prepare an extensible adapter architecture** (`automation/publishers/`) ready for additional social networks and marketplaces (**Pinterest, TikTok, Threads, X (Twitter), Etsy**) so adding a new channel only requires credentials + implementing its adapter without rewriting Admin CMS or database schemas.
+The goal is to provide a self-sufficient, 1-click multi-channel publishing pipeline inside Admin CMS (usable even from a mobile phone, without needing a PC running):
+1. **Manual 3D / Social Photo Choice:** The artist prepares 3D Cover images manually via **3D Cover Studio** (`cover-studio.js`) and marks the desired photo in the artwork's album with **`📱`** (`social_image_url`). If none is marked, the artwork's cover image is used automatically.
+2. **Direct Cloudflare Worker Publishing (`Instagram`, `Facebook`, `Aukro`):** Published directly on 1 click (**`🚀 Publikovať teraz`**) from Admin CMS via Meta Graph API and Aukro REST API (Aukro creates a draft/inactive offer by default).
+3. **Sashe.sk Browser Automation:** Since Sashe.sk has no public REST API, a dedicated local **Playwright** script (`/automation/run.js --sashe`) fills the form with clean images and pauses at the review/draft screen.
+4. **Per-Network Switches & Encrypted Integrations (`🚀 Automatizácia`):** Admin CMS provides individual ON/OFF switches per channel plus an **Integrácie & Kľúče** tab where tokens/IDs are encrypted (AES-256-GCM via `AUTOMATION_ENCRYPTION_KEY`), tested live, and refreshed automatically by a weekly Cloudflare Cron Trigger.
+5. **Per-Portal Pricing:** Each artwork supports a base `priceEur` plus optional overrides per marketplace (`portalPrices`: `aukro`, `sashe`, `etsy`).
+6. **Extensible Adapter Architecture:** Pre-prepared channels & integrations for **Pinterest, TikTok, Threads, X (Twitter), and Etsy** ready to activate with credentials and API calls.
 
 ---
 
-## 2. Architecture Constraints (Cloudflare Compatibility)
-- **Cloudflare Workers** do not natively support heavy Node.js binary libraries like `sharp` or `playwright`.
-- Therefore, the automation is split cleanly into two cooperating parts:
-  - **Web / Cloudflare Side (`worker.js`, `admin.html`, `admin.js`, D1, R2):**
-    - Stores artwork metadata (`price_eur`, `social_image_url`, `publish_status_json`, `publish_channels_json`) and per-channel ON/OFF switches (`automation_channels`) in D1, plus images in R2.
-    - Exposes protected REST API endpoints (authenticated either by Bearer `AUTOMATION_API_KEY` secret or Admin CMS session cookie).
-    - Provides the Admin CMS UI (`🚀 Automatizácia` modal + per-artwork publish status panel + `Cena (€)` input).
-  - **Automation Runner (`/automation` Node.js CLI):**
-    - Dedicated `/automation` folder (excluded from Cloudflare `[assets]` via `.assetsignore`) using Node.js ESM (`sharp`, `playwright`, `dotenv`).
-    - Reads active channel switches from Cloudflare API, processes missing 4:5 stylized images, uploads them back to R2, dispatches posts only to enabled channels via modular publisher adapters, and reports results back to D1.
+## 2. Social Caption & Marketplace Formatting
+- **Social Media (`Instagram`, `Facebook`, etc.) — NO price:**
+  ```text
+  {Názov maľby}
+  {Rozmer}
+
+  {Kurátorský popis}
+
+  https://platenko.lm-olexicak.workers.dev/?dielo={id}
+
+  #platenko #akrylnaplatne #abstraktneumenie #slovenskeumenie #originalmalba #fluidart #dutchpour #interierovydizajn
+  ```
+- **Marketplaces (`Aukro`, `Sashe.sk`, `Etsy`):** clean artwork image (`cover_image`), portal-specific price (fallback to base `price_eur`), structured specs, and deep-link.
 
 ---
 
-## 3. Implemented Architecture & Phases
+## 3. Architecture & Implemented Components
 
-### Phase 1: Database & Automation API (`worker.js`)
+### Phase 1: Database, AES-GCM Crypto & Worker API (`worker.js`, `wrangler.toml`)
 1. **Idempotent auto-migration (`ensureAutomationSchema`):**
-   - Extends `artworks` table (if columns are missing):
-     - `price_eur REAL`
-     - `social_image_url TEXT DEFAULT ''`
-     - `publish_status_json TEXT DEFAULT '{}'`
-     - `publish_channels_json TEXT DEFAULT '{}'`
-   - Creates `automation_channels` table (`channel_key`, `label`, `kind`, `image_variant`, `adapter`, `implemented`, `enabled`, `auto_publish`, `config_json`, `sort_order`, `updated_at`) and seeds 9 channels (all `enabled = 0` by default for safety):
-     - **Ready (`implemented = 1`):** `instagram`, `facebook`, `aukro`, `sashe`
-     - **Pre-prepared (`implemented = 0`):** `pinterest`, `tiktok`, `threads`, `x`, `etsy`
-2. **Protected API Endpoints (`Authorization: Bearer <AUTOMATION_API_KEY>` or Admin session cookie):**
-   - `GET /api/automation/channels` — lists all channels with ON/OFF state, readiness, and summary counts (`enabledCount`, `pendingArtworksCount`).
-   - `PUT /api/automation/channels/:key` — toggles `enabled`, `autoPublish` (draft vs publish), and optional non-secret config in D1.
-   - `GET /api/automation/pending` — returns artworks missing `social_image_url` or pending for any globally enabled channel (respecting per-artwork `publishChannels[key] === false` opt-outs). Supports `?channel=`, `?artworkId=`, `?includeAll=1`.
-   - `POST /api/automation/upload-social-image` — uploads the generated 4:5 image + 600px thumbnail to R2 (`social_4x5_...`) and updates `artworks.social_image_url` without modifying `cover_image` or `raw_image`.
-   - `PATCH /api/automation/status/:id` — updates per-channel status (`pending | drafted | published | error`), `externalId`, `url`, `error`, and `updatedAt` in `publish_status_json` (and fills `instagram_url` if empty).
+   - `artworks` columns: `price_eur`, `portal_prices_json`, `social_image_url`, `publish_status_json`, `publish_channels_json`.
+   - `automation_channels`: 9 seeded channels (`instagram`, `facebook`, `aukro`, `sashe`, plus pre-prepared `pinterest`, `tiktok`, `threads`, `x`, `etsy`), all `enabled = 0` by default.
+   - `automation_integrations`: encrypted credential store (`provider`, `auth_type`, `encrypted_credentials`, `account_id`, `account_name`, `status`, `expires_at`, `last_checked_at`, `last_error`), ready for future OAuth flows (`auth_type = 'oauth'`).
+2. **Credential Security & Weekly Cron:**
+   - Credentials saved in Admin UI are encrypted with **AES-256-GCM** using `AUTOMATION_ENCRYPTION_KEY` (stored in Cloudflare Secrets) and are **never sent back to the browser**.
+   - Fallback to Cloudflare Worker Secrets (`META_ACCESS_TOKEN`, `AUKRO_ACCESS_TOKEN`, etc.) when no DB credential is saved.
+   - Weekly Cron Trigger (`[triggers] crons = ["0 3 * * 1"]` → `scheduled()` in `worker.js`) automatically exchanges/refreshes expiring Meta and Aukro tokens (within 14 days of expiry) and flags `status = 'error'` in Admin CMS if refresh fails.
+3. **API Endpoints (Bearer `AUTOMATION_API_KEY` or Admin cookie session):**
+   - `GET / PUT /api/automation/channels` — channel switches & pending summary.
+   - `GET / PUT / DELETE /api/automation/integrations/:provider` — masked status & encrypted credential storage.
+   - `POST /api/automation/integrations/:provider/test` — live upstream verification (`@ig_username`, Facebook Page name, Aukro user) + token expiry check.
+   - `POST /api/automation/integrations/refresh` — manual trigger for token refresh.
+   - `POST /api/automation/publish/:id` — direct 1-click publishing to selected channels with independent per-channel error isolation.
+   - `GET /api/automation/pending`, `POST /api/automation/upload-social-image`, `PATCH /api/automation/status/:id` — queue/status sync (used by Sashe Playwright runner & status resets).
 
-### Phase 2: Admin CMS Controls (`admin.html`, `admin.js`, `styles.css`)
-1. **Header button `🚀 Automatizácia`:** opens `#automationModal` grouped into **Sociálne siete (4:5 štylizovaná fotka s tieňom)** and **Predajné portály (čistá fotka diela)**.
-2. **Per-network ON/OFF switches (`.adm-switch`):** instantaneously persist via `PUT /api/automation/channels/:key`. Marketplaces also include a *Len koncept* (`!autoPublish`) toggle.
-3. **Price & Per-Artwork Status Panel:**
-   - Optional `Cena (€)` input (`#admPriceEur`) saved on artworks for Aukro/Sashe/Etsy.
-   - Compact `#admPublishPanel` inside artwork edit view displaying the 4:5 stylized thumbnail (if generated), per-channel publish status pills, per-artwork opt-in/out checkboxes (`publishChannels`), and a `↺` reset button to re-queue errored or already published items.
+### Phase 2: Admin CMS UI (`admin.html`, `admin.js`, `styles.css`)
+- **Ceny (€):** base `priceEur` + per-portal inputs for `Aukro`, `Sashe.sk`, and `Etsy`.
+- **Album Photo Picker (`📱`):** button on every album photo card to designate the social-media image (e.g. a manually crafted 3D Cover).
+- **Per-Artwork Publish Panel (`#admPublishPanel`):** checkboxes for target channels, status badges, `↺` reset button, and **`🚀 Publikovať teraz`** button that saves changes and publishes immediately with per-channel result reporting.
+- **`🚀 Automatizácia` Modal:** two tabs — **🔀 Kanály (ON/OFF)** and **🔑 Integrácie & Kľúče** (with masked inputs, live *Otestovať pripojenie*, *Odpojiť*, and *Obnoviť tokeny*).
 
-### Phase 3: Automated Image Stylizer (`/automation/imageProcessor.js`)
-Using `sharp`, transforms any clean cover image into a **4:5 portrait** (`1080×1350px`) JPEG:
-1. **Background layer:** cover-cropped to `1080×1350`, heavy Gaussian blur (`blur(45)`), brightened & softened (`modulate({ brightness: 1.15, saturation: 0.9 })`).
-2. **Foreground layer:** resized cleanly inside `860×1080px` preserving aspect ratio.
-3. **3D Drop Shadow:** soft offset blurred shadow composited under the foreground painting.
-4. **Output:** saved locally under `automation/output/` and uploaded to R2 + thumbnail via `POST /api/automation/upload-social-image`.
-
-### Phase 4: Extensible Publisher Adapters (`/automation/publishers/`)
-Every channel implements `BasePublisherAdapter` (`baseAdapter.js`) and is registered in `registry.js`:
-- **Instagram & Facebook (`metaPublisher.js`):** Meta Graph API (`/{IG_USER_ID}/media` + status polling + `media_publish`; `/{FB_PAGE_ID}/photos`) using `socialImagePublicUrl`.
-- **Aukro (`aukroPublisher.js`):** Aukro REST API with OAuth2 token/refresh flow, clean image upload, and draft/inactive offer creation by default.
-- **Sashe.sk (`sashePublisher.js`):** Playwright browser automation (`headless: false`) with persisted session (`automation/.sessions/sashe-state.json`), fills metadata & uploads clean image, and pauses on the review/draft screen without auto-publishing.
-- **Pre-prepared Social & Marketplace Adapters (`socialStubs.js`):** `pinterestAdapter` (Pinterest API v5), `tiktokAdapter` (TikTok Content Posting API), `threadsAdapter` (Meta Threads API), `xAdapter` (X API v2), and `etsyAdapter` (Etsy Open API v3) — ready with env key validation and endpoint contracts.
-
-### Phase 5: Master CLI Runner (`/automation/run.js`)
-- `npm run status` (`--dry-run`) — inspects Admin CMS switches and lists pending artworks without publishing.
-- `npm run stylize` (`--stylize-only`) — generates and uploads missing 4:5 stylized images to R2.
-- `npm run publish-art` — runs enabled channels from Admin CMS for all pending artworks.
-- Supports targeted flags: `--ig`, `--fb`, `--aukro`, `--sashe`, `--pinterest`, `--tiktok`, `--threads`, `--x`, `--etsy`, `--channels=a,b`, `--artwork=<id>`, `--limit=<n>`.
+### Phase 3: Local Sashe.sk Runner (`/automation/`)
+- Dedicated to **Sashe.sk** via Playwright (`headless: false`, persisted `.sessions/sashe-state.json`, pauses before final publish, uses `portalPrices.sashe ?? priceEur`).
+- Optional fallback 4:5 `sharp` stylizer remains available via `npm run stylize` if needed.
 
 ---
 
-## 4. Environment Variables Template (`/automation/.env.example`)
-See `/automation/.env.example` for all keys (`WEB_API_BASE_URL`, `AUTOMATION_API_KEY`, Meta IG/FB, Aukro, Sashe, plus pre-prepared Pinterest, TikTok, Threads, X, and Etsy variables).
-`AUTOMATION_API_KEY` must also be stored as a Cloudflare Worker secret (`npx wrangler secret put AUTOMATION_API_KEY`).
+## 4. Cloudflare Secrets & Environment Setup
+- **Required on Cloudflare Worker for UI-stored Integrations:**
+  - `AUTOMATION_ENCRYPTION_KEY` — random 32+ char secret (`npx wrangler secret put AUTOMATION_ENCRYPTION_KEY`)
+  - Optional `AUTOMATION_API_KEY` — Bearer token for local Sashe CLI (`automation/.env`)
+- **Optional fallback secrets / local `.env`:** see `/automation/.env.example`.

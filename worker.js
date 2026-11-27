@@ -2,7 +2,803 @@
 
 let automationSchemaReady = false;
 
+const hexToBytes = (hex) => {
+  const clean = (hex || '').trim();
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(clean.substr(i * 2, 2), 16);
+  }
+  return bytes;
+};
+
+const bytesToHex = (bytes) =>
+  Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+
+const parseJsonSafe = (str, fallback) => {
+  if (!str || typeof str !== 'string') return fallback;
+  try {
+    const parsed = JSON.parse(str);
+    return parsed && typeof parsed === 'object' ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const toAbsoluteUrl = (origin, relOrAbs) => {
+  if (!relOrAbs || typeof relOrAbs !== 'string') return '';
+  if (/^https?:\/\//i.test(relOrAbs)) return relOrAbs;
+  return `${origin}/${relOrAbs.replace(/^\/+/, '')}`;
+};
+
+const urlToR2Key = (imageUrl) => {
+  if (typeof imageUrl !== 'string' || !imageUrl) return null;
+  let clean = imageUrl.split('?')[0].split('#')[0];
+  if (clean.startsWith('/')) clean = clean.substring(1);
+  if (clean.startsWith('images/')) clean = clean.substring('images/'.length);
+  try {
+    clean = decodeURIComponent(clean);
+  } catch {
+    // keep as-is
+  }
+  return clean.startsWith('paintings/') ? clean : null;
+};
+
+const deriveAesKey = async (secret) => {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(String(secret).trim())
+  );
+  return crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+};
+
+const encryptCredentials = async (obj, secret) => {
+  if (!secret || !String(secret).trim()) {
+    throw new Error('Chýba hlavný šifrovací kľúč AUTOMATION_ENCRYPTION_KEY v Cloudflare Secrets.');
+  }
+  const key = await deriveAesKey(secret);
+  const iv = new Uint8Array(12);
+  crypto.getRandomValues(iv);
+  const plainBytes = new TextEncoder().encode(JSON.stringify(obj || {}));
+  const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plainBytes);
+  return `v1:${bytesToHex(iv)}:${bytesToHex(new Uint8Array(cipherBuf))}`;
+};
+
+const decryptCredentials = async (payloadStr, secret) => {
+  if (!payloadStr || typeof payloadStr !== 'string') return {};
+  if (!secret || !String(secret).trim()) {
+    throw new Error('Chýba hlavný šifrovací kľúč AUTOMATION_ENCRYPTION_KEY v Cloudflare Secrets.');
+  }
+  const parts = payloadStr.split(':');
+  if (parts.length !== 3 || parts[0] !== 'v1') {
+    throw new Error('Neplatný formát šifrovaných prihlasovacích údajov.');
+  }
+  const key = await deriveAesKey(secret);
+  const iv = hexToBytes(parts[1]);
+  const cipherBytes = hexToBytes(parts[2]);
+  const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipherBytes);
+  return parseJsonSafe(new TextDecoder().decode(plainBuf), {});
+};
+
+const DEFAULT_AUTOMATION_CHANNELS = [
+  { channel_key: 'instagram', label: 'Instagram', kind: 'social', image_variant: 'stylized', adapter: 'meta_ig', implemented: 1, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 1 },
+  { channel_key: 'facebook', label: 'Facebook', kind: 'social', image_variant: 'stylized', adapter: 'meta_fb', implemented: 1, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 2 },
+  { channel_key: 'aukro', label: 'Aukro', kind: 'marketplace', image_variant: 'clean', adapter: 'aukro', implemented: 1, enabled: 0, auto_publish: 0, config_json: '{}', sort_order: 3 },
+  { channel_key: 'sashe', label: 'Sashe.sk', kind: 'marketplace', image_variant: 'clean', adapter: 'sashe', implemented: 1, enabled: 0, auto_publish: 0, config_json: '{}', sort_order: 4 },
+  { channel_key: 'pinterest', label: 'Pinterest', kind: 'social', image_variant: 'stylized', adapter: 'pinterest', implemented: 0, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 5 },
+  { channel_key: 'tiktok', label: 'TikTok', kind: 'social', image_variant: 'stylized', adapter: 'tiktok', implemented: 0, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 6 },
+  { channel_key: 'threads', label: 'Threads', kind: 'social', image_variant: 'stylized', adapter: 'threads', implemented: 0, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 7 },
+  { channel_key: 'x', label: 'X (Twitter)', kind: 'social', image_variant: 'stylized', adapter: 'x', implemented: 0, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 8 },
+  { channel_key: 'etsy', label: 'Etsy', kind: 'marketplace', image_variant: 'clean', adapter: 'etsy', implemented: 0, enabled: 0, auto_publish: 0, config_json: '{}', sort_order: 9 },
+];
+
+const INTEGRATION_PROVIDERS = [
+  {
+    provider: 'meta',
+    label: 'Meta (Instagram & Facebook)',
+    implemented: true,
+    supportsOAuthFuture: true,
+    envMap: {
+      accessToken: 'META_ACCESS_TOKEN',
+      igUserId: 'IG_USER_ID',
+      fbPageId: 'FB_PAGE_ID',
+      appId: 'META_APP_ID',
+      appSecret: 'META_APP_SECRET',
+    },
+    fields: [
+      { key: 'accessToken', label: 'Meta Access Token', secret: true, placeholder: 'EAAG...' },
+      { key: 'igUserId', label: 'Instagram Business User ID', secret: false, placeholder: '178414...' },
+      { key: 'fbPageId', label: 'Facebook Page ID', secret: false, placeholder: '102938...' },
+      { key: 'appId', label: 'Meta App ID (pre auto-obnovu tokenu)', secret: false, placeholder: 'voliteľné' },
+      { key: 'appSecret', label: 'Meta App Secret (pre auto-obnovu tokenu)', secret: true, placeholder: 'voliteľné' },
+    ],
+  },
+  {
+    provider: 'aukro',
+    label: 'Aukro REST API',
+    implemented: true,
+    supportsOAuthFuture: true,
+    envMap: {
+      accessToken: 'AUKRO_ACCESS_TOKEN',
+      refreshToken: 'AUKRO_REFRESH_TOKEN',
+      clientId: 'AUKRO_CLIENT_ID',
+      clientSecret: 'AUKRO_CLIENT_SECRET',
+      categoryId: 'AUKRO_DEFAULT_CATEGORY_ID',
+      currency: 'AUKRO_DEFAULT_CURRENCY',
+      apiBaseUrl: 'AUKRO_API_BASE_URL',
+    },
+    fields: [
+      { key: 'accessToken', label: 'Aukro Access Token', secret: true, placeholder: 'Bearer token...' },
+      { key: 'refreshToken', label: 'Aukro Refresh Token', secret: true, placeholder: 'pre auto-obnovu' },
+      { key: 'clientId', label: 'Client ID', secret: false, placeholder: 'OAuth Client ID' },
+      { key: 'clientSecret', label: 'Client Secret', secret: true, placeholder: 'OAuth Client Secret' },
+      { key: 'categoryId', label: 'Predvolená kategória ID', secret: false, placeholder: 'napr. 100516' },
+      { key: 'currency', label: 'Mena (predvolene EUR)', secret: false, placeholder: 'EUR' },
+      { key: 'apiBaseUrl', label: 'API Base URL', secret: false, placeholder: 'https://api.aukro.cz/v1' },
+    ],
+  },
+  {
+    provider: 'pinterest',
+    label: 'Pinterest (predpríprava)',
+    implemented: false,
+    supportsOAuthFuture: true,
+    envMap: { accessToken: 'PINTEREST_ACCESS_TOKEN', boardId: 'PINTEREST_BOARD_ID' },
+    fields: [
+      { key: 'accessToken', label: 'Pinterest Access Token', secret: true, placeholder: 'pina_...' },
+      { key: 'boardId', label: 'Board ID', secret: false, placeholder: 'ID nástenky' },
+    ],
+  },
+  {
+    provider: 'tiktok',
+    label: 'TikTok (predpríprava)',
+    implemented: false,
+    supportsOAuthFuture: true,
+    envMap: { accessToken: 'TIKTOK_ACCESS_TOKEN' },
+    fields: [
+      { key: 'accessToken', label: 'TikTok Access Token', secret: true, placeholder: 'act...' },
+    ],
+  },
+  {
+    provider: 'threads',
+    label: 'Threads (predpríprava)',
+    implemented: false,
+    supportsOAuthFuture: true,
+    envMap: { accessToken: 'THREADS_ACCESS_TOKEN', userId: 'THREADS_USER_ID' },
+    fields: [
+      { key: 'accessToken', label: 'Threads Access Token', secret: true, placeholder: 'THQW...' },
+      { key: 'userId', label: 'Threads User ID', secret: false, placeholder: 'ID profilu' },
+    ],
+  },
+  {
+    provider: 'x',
+    label: 'X / Twitter (predpríprava)',
+    implemented: false,
+    supportsOAuthFuture: true,
+    envMap: { accessToken: 'X_ACCESS_TOKEN' },
+    fields: [
+      { key: 'accessToken', label: 'X Access Token', secret: true, placeholder: 'Bearer / OAuth2 token' },
+    ],
+  },
+  {
+    provider: 'etsy',
+    label: 'Etsy (predpríprava)',
+    implemented: false,
+    supportsOAuthFuture: true,
+    envMap: { apiKey: 'ETSY_API_KEY', accessToken: 'ETSY_ACCESS_TOKEN', shopId: 'ETSY_SHOP_ID' },
+    fields: [
+      { key: 'apiKey', label: 'Etsy API Key (keystring)', secret: true, placeholder: 'keystring' },
+      { key: 'accessToken', label: 'Etsy OAuth Token', secret: true, placeholder: 'token' },
+      { key: 'shopId', label: 'Etsy Shop ID', secret: false, placeholder: 'ID obchodu' },
+    ],
+  },
+];
+
+const ensureAutomationSchema = async (env) => {
+  if (automationSchemaReady) return;
+  const { results: cols } = await env.DB.prepare(`PRAGMA table_info(artworks)`).all();
+  const existingCols = new Set((cols || []).map((c) => c.name));
+  const alterQueries = [];
+  if (!existingCols.has('price_eur')) alterQueries.push(`ALTER TABLE artworks ADD COLUMN price_eur REAL`);
+  if (!existingCols.has('portal_prices_json')) alterQueries.push(`ALTER TABLE artworks ADD COLUMN portal_prices_json TEXT DEFAULT '{}'`);
+  if (!existingCols.has('social_image_url')) alterQueries.push(`ALTER TABLE artworks ADD COLUMN social_image_url TEXT DEFAULT ''`);
+  if (!existingCols.has('publish_status_json')) alterQueries.push(`ALTER TABLE artworks ADD COLUMN publish_status_json TEXT DEFAULT '{}'`);
+  if (!existingCols.has('publish_channels_json')) alterQueries.push(`ALTER TABLE artworks ADD COLUMN publish_channels_json TEXT DEFAULT '{}'`);
+
+  for (const q of alterQueries) {
+    try {
+      await env.DB.prepare(q).run();
+    } catch (err) {
+      if (!/duplicate column/i.test(String(err && err.message))) throw err;
+    }
+  }
+
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS automation_channels (
+      channel_key TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      image_variant TEXT NOT NULL DEFAULT 'stylized',
+      adapter TEXT NOT NULL,
+      implemented INTEGER DEFAULT 0,
+      enabled INTEGER DEFAULT 0,
+      auto_publish INTEGER DEFAULT 0,
+      config_json TEXT DEFAULT '{}',
+      sort_order INTEGER DEFAULT 0,
+      updated_at TEXT DEFAULT ''
+    )
+  `).run();
+
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS automation_integrations (
+      provider TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      auth_type TEXT NOT NULL DEFAULT 'manual',
+      encrypted_credentials TEXT DEFAULT '',
+      account_id TEXT DEFAULT '',
+      account_name TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'disconnected',
+      expires_at TEXT DEFAULT '',
+      last_checked_at TEXT DEFAULT '',
+      last_error TEXT DEFAULT '',
+      updated_at TEXT DEFAULT ''
+    )
+  `).run();
+
+  const seedChannels = DEFAULT_AUTOMATION_CHANNELS.map((ch) =>
+    env.DB.prepare(`
+      INSERT OR IGNORE INTO automation_channels
+        (channel_key, label, kind, image_variant, adapter, implemented, enabled, auto_publish, config_json, sort_order, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      ch.channel_key,
+      ch.label,
+      ch.kind,
+      ch.image_variant,
+      ch.adapter,
+      ch.implemented,
+      ch.enabled,
+      ch.auto_publish,
+      ch.config_json,
+      ch.sort_order,
+      ''
+    )
+  );
+  const seedIntegrations = INTEGRATION_PROVIDERS.map((p) =>
+    env.DB.prepare(`
+      INSERT OR IGNORE INTO automation_integrations (provider, label, auth_type, status)
+      VALUES (?, ?, 'manual', 'disconnected')
+    `).bind(p.provider, p.label)
+  );
+  await env.DB.batch([...seedChannels, ...seedIntegrations]);
+  automationSchemaReady = true;
+};
+
+const getProviderMeta = (provider) => INTEGRATION_PROVIDERS.find((p) => p.provider === provider) || null;
+
+const resolveProviderCredentials = async (env, provider) => {
+  const meta = getProviderMeta(provider);
+  if (!meta) return { meta: null, creds: {}, source: 'none', row: null };
+  const row = await env.DB.prepare(`SELECT * FROM automation_integrations WHERE provider = ?`).bind(provider).first();
+
+  const envCreds = {};
+  Object.entries(meta.envMap || {}).forEach(([fieldKey, envKey]) => {
+    const val = env[envKey];
+    if (typeof val === 'string' && val.trim()) {
+      envCreds[fieldKey] = val.trim();
+    }
+  });
+
+  if (row && row.encrypted_credentials) {
+    if (!env.AUTOMATION_ENCRYPTION_KEY) {
+      return {
+        meta,
+        creds: envCreds,
+        source: 'db_locked',
+        row,
+        error: 'Chýba AUTOMATION_ENCRYPTION_KEY v Cloudflare Secrets.',
+      };
+    }
+    try {
+      const dbCreds = await decryptCredentials(row.encrypted_credentials, env.AUTOMATION_ENCRYPTION_KEY);
+      // Allow env defaults (like appId/appSecret or currency) if not overridden in DB
+      return { meta, creds: { ...envCreds, ...dbCreds }, source: 'db', row };
+    } catch (err) {
+      return { meta, creds: envCreds, source: 'db_error', row, error: err.message };
+    }
+  }
+
+  if (Object.keys(envCreds).length > 0) {
+    return { meta, creds: envCreds, source: 'env_secret', row };
+  }
+  return { meta, creds: {}, source: 'none', row };
+};
+
+const sanitizeIntegrationSummary = (resolved) => {
+  const { meta, creds, source, row, error } = resolved;
+  const configuredFields = Object.keys(creds).filter((k) => String(creds[k] || '').trim().length > 0);
+  const dbStatus = (row && row.status) || 'disconnected';
+  const effectiveStatus = source === 'env_secret' && dbStatus === 'disconnected'
+    ? 'configured'
+    : (error ? 'error' : dbStatus);
+  return {
+    provider: meta.provider,
+    label: meta.label,
+    implemented: meta.implemented,
+    authType: (row && row.auth_type) || 'manual',
+    supportsOAuthFuture: meta.supportsOAuthFuture,
+    connected: effectiveStatus === 'connected' || effectiveStatus === 'configured',
+    source,
+    status: effectiveStatus,
+    accountId: (row && row.account_id) || '',
+    accountName: (row && row.account_name) || '',
+    expiresAt: (row && row.expires_at) || '',
+    lastCheckedAt: (row && row.last_checked_at) || '',
+    lastError: error || (row && row.last_error) || '',
+    updatedAt: (row && row.updated_at) || '',
+    configuredFields,
+    fields: meta.fields.map((f) => ({
+      key: f.key,
+      label: f.label,
+      secret: Boolean(f.secret),
+      placeholder: f.placeholder || '',
+      hasValue: configuredFields.includes(f.key),
+    })),
+  };
+};
+
+const updateIntegrationRecord = async (env, provider, fieldsObj) => {
+  const entries = Object.entries(fieldsObj);
+  if (entries.length === 0) return;
+  const setSql = entries.map(([k]) => `${k} = ?`).join(', ');
+  const vals = entries.map(([, v]) => v);
+  await env.DB.prepare(`UPDATE automation_integrations SET ${setSql} WHERE provider = ?`)
+    .bind(...vals, provider)
+    .run();
+};
+
+const refreshAukroAccessToken = async (env, creds) => {
+  const base = String(creds.apiBaseUrl || 'https://api.aukro.cz/v1').replace(/\/+$/, '');
+  const authBasic = btoa(`${creds.clientId}:${creds.clientSecret}`);
+  const resp = await fetch(`${base}/oauth/token`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${authBasic}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: creds.refreshToken,
+    }),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.access_token) {
+    throw new Error(data.error_description || data.message || `Aukro OAuth2 HTTP ${resp.status}`);
+  }
+  const expiresAt = data.expires_in
+    ? new Date(Date.now() + Number(data.expires_in) * 1000).toISOString()
+    : '';
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token || creds.refreshToken,
+    expiresAt,
+  };
+};
+
+const testProviderConnection = async (env, provider) => {
+  const resolved = await resolveProviderCredentials(env, provider);
+  if (!resolved.meta) throw new Error('Neznáma integrácia.');
+  const { creds, source, error } = resolved;
+  const nowIso = new Date().toISOString();
+
+  if (error) {
+    await updateIntegrationRecord(env, provider, { status: 'error', last_checked_at: nowIso, last_error: error });
+    throw new Error(error);
+  }
+
+  try {
+    if (provider === 'meta') {
+      if (!creds.accessToken || !creds.igUserId || !creds.fbPageId) {
+        throw new Error('Vyplň Meta Access Token, IG User ID a FB Page ID.');
+      }
+      const v = 'v21.0';
+      const [fbResp, igResp] = await Promise.all([
+        fetch(`https://graph.facebook.com/${v}/${encodeURIComponent(creds.fbPageId)}?fields=id,name&access_token=${encodeURIComponent(creds.accessToken)}`),
+        fetch(`https://graph.facebook.com/${v}/${encodeURIComponent(creds.igUserId)}?fields=id,username&access_token=${encodeURIComponent(creds.accessToken)}`),
+      ]);
+      const fbData = await fbResp.json().catch(() => ({}));
+      const igData = await igResp.json().catch(() => ({}));
+      if (!fbResp.ok || fbData.error) {
+        throw new Error((fbData.error && fbData.error.message) || `Facebook Page HTTP ${fbResp.status}`);
+      }
+      if (!igResp.ok || igData.error) {
+        throw new Error((igData.error && igData.error.message) || `Instagram účet HTTP ${igResp.status}`);
+      }
+
+      let expiresAt = (resolved.row && resolved.row.expires_at) || '';
+      if (creds.appId && creds.appSecret) {
+        try {
+          const dbgResp = await fetch(
+            `https://graph.facebook.com/${v}/debug_token?input_token=${encodeURIComponent(creds.accessToken)}&access_token=${encodeURIComponent(`${creds.appId}|${creds.appSecret}`)}`
+          );
+          const dbgData = await dbgResp.json().catch(() => ({}));
+          if (dbgResp.ok && dbgData.data && dbgData.data.expires_at) {
+            expiresAt = new Date(Number(dbgData.data.expires_at) * 1000).toISOString();
+          }
+        } catch {}
+      }
+
+      const accountName = [igData.username ? `@${igData.username}` : '', fbData.name || ''].filter(Boolean).join(' · ');
+      await updateIntegrationRecord(env, provider, {
+        status: 'connected',
+        account_id: String(igData.id || creds.igUserId),
+        account_name: accountName || 'Meta prepojené',
+        expires_at: expiresAt,
+        last_checked_at: nowIso,
+        last_error: '',
+      });
+      return { ok: true, accountName, expiresAt };
+    }
+
+    if (provider === 'aukro') {
+      const base = String(creds.apiBaseUrl || 'https://api.aukro.cz/v1').replace(/\/+$/, '');
+      let token = creds.accessToken;
+      let expiresAt = (resolved.row && resolved.row.expires_at) || '';
+      if (!token && creds.refreshToken && creds.clientId && creds.clientSecret) {
+        const refreshed = await refreshAukroAccessToken(env, creds);
+        token = refreshed.accessToken;
+        expiresAt = refreshed.expiresAt;
+        if (source === 'db' && env.AUTOMATION_ENCRYPTION_KEY) {
+          const enc = await encryptCredentials({ ...creds, ...refreshed }, env.AUTOMATION_ENCRYPTION_KEY);
+          await updateIntegrationRecord(env, provider, { encrypted_credentials: enc });
+        }
+      }
+      if (!token) {
+        throw new Error('Vyplň Aukro Access Token alebo OAuth2 údaje.');
+      }
+      let meResp = await fetch(`${base}/users/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (meResp.status === 404) {
+        meResp = await fetch(`${base}/offers?limit=1`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+      const meData = await meResp.json().catch(() => ({}));
+      if (!meResp.ok) {
+        throw new Error(meData.message || `Aukro API HTTP ${meResp.status}`);
+      }
+      const accountName = meData.username || meData.login || meData.email || 'Aukro účet';
+      await updateIntegrationRecord(env, provider, {
+        status: 'connected',
+        account_id: String(meData.id || ''),
+        account_name: accountName,
+        expires_at: expiresAt,
+        last_checked_at: nowIso,
+        last_error: '',
+      });
+      return { ok: true, accountName, expiresAt };
+    }
+
+    // Future pre-prepared integrations: verify required fields are saved
+    const missing = resolved.meta.fields
+      .filter((f) => !String(creds[f.key] || '').trim())
+      .map((f) => f.label);
+    if (missing.length > 0) {
+      throw new Error(`Chýbajú údaje: ${missing.join(', ')}`);
+    }
+    await updateIntegrationRecord(env, provider, {
+      status: 'configured',
+      account_name: 'Kľúče uložené (predpríprava)',
+      last_checked_at: nowIso,
+      last_error: '',
+    });
+    return { ok: true, accountName: 'Kľúče uložené (predpríprava)', expiresAt: '' };
+  } catch (err) {
+    await updateIntegrationRecord(env, provider, {
+      status: 'error',
+      last_checked_at: nowIso,
+      last_error: err.message,
+    });
+    throw err;
+  }
+};
+
+const refreshExpiringIntegrations = async (env, { force = false } = {}) => {
+  await ensureAutomationSchema(env);
+  const results = {};
+  if (!env.AUTOMATION_ENCRYPTION_KEY) {
+    return { skipped: true, reason: 'AUTOMATION_ENCRYPTION_KEY nie je nastavený.' };
+  }
+
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const thresholdMs = 14 * 86400 * 1000;
+
+  for (const provider of ['meta', 'aukro']) {
+    const resolved = await resolveProviderCredentials(env, provider);
+    if (resolved.source !== 'db') continue;
+    const { creds, row } = resolved;
+    const expMs = row && row.expires_at ? Date.parse(row.expires_at) : NaN;
+    const needsRefresh = force || (Number.isFinite(expMs) && expMs - nowMs <= thresholdMs);
+    if (!needsRefresh) {
+      results[provider] = { status: 'ok_not_expiring', expiresAt: row.expires_at || '' };
+      continue;
+    }
+
+    try {
+      if (provider === 'meta') {
+        if (!creds.appId || !creds.appSecret || !creds.accessToken) {
+          results[provider] = { status: 'skipped_no_app_secret' };
+          continue;
+        }
+        const exUrl = `https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${encodeURIComponent(creds.appId)}&client_secret=${encodeURIComponent(creds.appSecret)}&fb_exchange_token=${encodeURIComponent(creds.accessToken)}`;
+        const exResp = await fetch(exUrl);
+        const exData = await exResp.json().catch(() => ({}));
+        if (!exResp.ok || !exData.access_token) {
+          throw new Error((exData.error && exData.error.message) || `Meta obnova tokenu HTTP ${exResp.status}`);
+        }
+        const expiresIn = Number(exData.expires_in) || (60 * 86400);
+        const nextExp = new Date(Date.now() + expiresIn * 1000).toISOString();
+        const enc = await encryptCredentials({ ...creds, accessToken: exData.access_token }, env.AUTOMATION_ENCRYPTION_KEY);
+        await updateIntegrationRecord(env, provider, {
+          encrypted_credentials: enc,
+          status: 'connected',
+          expires_at: nextExp,
+          last_checked_at: nowIso,
+          last_error: '',
+          updated_at: nowIso,
+        });
+        results[provider] = { status: 'refreshed', expiresAt: nextExp };
+      } else if (provider === 'aukro') {
+        if (!creds.clientId || !creds.clientSecret || !creds.refreshToken) {
+          results[provider] = { status: 'skipped_no_refresh_token' };
+          continue;
+        }
+        const refreshed = await refreshAukroAccessToken(env, creds);
+        const enc = await encryptCredentials(
+          { ...creds, accessToken: refreshed.accessToken, refreshToken: refreshed.refreshToken },
+          env.AUTOMATION_ENCRYPTION_KEY
+        );
+        await updateIntegrationRecord(env, provider, {
+          encrypted_credentials: enc,
+          status: 'connected',
+          expires_at: refreshed.expiresAt,
+          last_checked_at: nowIso,
+          last_error: '',
+          updated_at: nowIso,
+        });
+        results[provider] = { status: 'refreshed', expiresAt: refreshed.expiresAt };
+      }
+    } catch (err) {
+      await updateIntegrationRecord(env, provider, {
+        status: 'error',
+        last_checked_at: nowIso,
+        last_error: `Obnova tokenu zlyhala: ${err.message}`,
+      });
+      results[provider] = { status: 'error', error: err.message };
+    }
+  }
+  return results;
+};
+
+const buildSocialCaptionServer = (artwork, origin) => {
+  const title = artwork.title || 'Originálna maľba';
+  const dims = artwork.dimensions || `${artwork.widthCm || 50} × ${artwork.heightCm || 70} cm`;
+  const desc = (artwork.description || '').trim();
+  const deepLink = origin ? `${origin}/?dielo=${encodeURIComponent(artwork.id)}` : '';
+  const lines = [title, dims];
+  if (desc) lines.push('', desc);
+  if (deepLink) lines.push('', deepLink);
+  lines.push(
+    '',
+    '#platenko #akrylnaplatne #abstraktneumenie #slovenskeumenie #originalmalba #fluidart #dutchpour #interierovydizajn'
+  );
+  return lines.join('\n').slice(0, 2200);
+};
+
+const buildMarketplaceDescriptionServer = (artwork, origin) => {
+  const dims = artwork.dimensions || `${artwork.widthCm || 50} × ${artwork.heightCm || 70} cm`;
+  const depth = artwork.depthCm ? ` (hrúbka rámu ${artwork.depthCm} cm)` : '';
+  const medium = artwork.medium || 'Akryl na plátne';
+  const deepLink = origin ? `${origin}/?dielo=${encodeURIComponent(artwork.id)}` : '';
+  return [
+    artwork.description ? artwork.description.trim() : `Originálna autorská maľba „${artwork.title}“ od Plátenko Akryl.`,
+    '',
+    `• Rozmery: ${dims}${depth}`,
+    `• Médium: ${medium}`,
+    artwork.technique ? `• Technika: ${artwork.technique}` : '',
+    '• Podklad: Napnuté plátno na drevenom ráme, ošetrené UV ochranným lakom.',
+    deepLink ? `• 3D & AR náhľad diela: ${deepLink}` : '',
+  ].filter(Boolean).join('\n');
+};
+
+const resolvePortalPrice = (artwork, portalKey) => {
+  const p = artwork.portalPrices && artwork.portalPrices[portalKey];
+  if (p !== null && p !== undefined && p !== '' && Number(p) > 0) {
+    return Number(p);
+  }
+  if (artwork.priceEur !== null && artwork.priceEur !== undefined && artwork.priceEur !== '' && Number(artwork.priceEur) > 0) {
+    return Number(artwork.priceEur);
+  }
+  return null;
+};
+
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const publishToSingleChannel = async (env, origin, artwork, channelRow) => {
+  const key = channelRow.key;
+
+  if (key === 'sashe') {
+    return {
+      status: 'pending',
+      note: `Sashe.sk nemá verejné API — spusti lokálny Playwright: cd automation && node run.js --sashe --artwork=${artwork.id}`,
+    };
+  }
+
+  if (!channelRow.implemented) {
+    return {
+      status: 'skipped_unimplemented',
+      note: `${channelRow.label} je v režime predprípravy.`,
+    };
+  }
+
+  if (key === 'instagram' || key === 'facebook') {
+    const resolved = await resolveProviderCredentials(env, 'meta');
+    if (resolved.error) throw new Error(resolved.error);
+    const { creds } = resolved;
+    const socialUrl = toAbsoluteUrl(origin, artwork.socialImageUrl || artwork.coverImage);
+    if (!socialUrl) throw new Error('Dielo nemá vybranú fotku pre sociálne siete ani titulnú fotku.');
+    const caption = buildSocialCaptionServer(artwork, origin);
+    const v = 'v21.0';
+
+    if (key === 'instagram') {
+      if (!creds.accessToken || !creds.igUserId) {
+        throw new Error('Meta integrácia nie je nakonfigurovaná (chýba Access Token alebo IG User ID).');
+      }
+      const createResp = await fetch(`https://graph.facebook.com/${v}/${encodeURIComponent(creds.igUserId)}/media`, {
+        method: 'POST',
+        body: new URLSearchParams({
+          image_url: socialUrl,
+          caption,
+          access_token: creds.accessToken,
+        }),
+      });
+      const createData = await createResp.json().catch(() => ({}));
+      if (!createResp.ok || !createData.id) {
+        throw new Error((createData.error && createData.error.message) || `IG /media HTTP ${createResp.status}`);
+      }
+      for (let i = 0; i < 8; i++) {
+        const stResp = await fetch(
+          `https://graph.facebook.com/${v}/${createData.id}?fields=status_code&access_token=${encodeURIComponent(creds.accessToken)}`
+        );
+        const stData = await stResp.json().catch(() => ({}));
+        if (stData.status_code === 'FINISHED') break;
+        if (stData.status_code === 'ERROR') throw new Error('Instagram spracovanie obrázka zlyhalo.');
+        await sleepMs(2000);
+      }
+      const pubResp = await fetch(`https://graph.facebook.com/${v}/${encodeURIComponent(creds.igUserId)}/media_publish`, {
+        method: 'POST',
+        body: new URLSearchParams({
+          creation_id: createData.id,
+          access_token: creds.accessToken,
+        }),
+      });
+      const pubData = await pubResp.json().catch(() => ({}));
+      if (!pubResp.ok || !pubData.id) {
+        throw new Error((pubData.error && pubData.error.message) || `IG /media_publish HTTP ${pubResp.status}`);
+      }
+      let permalink = '';
+      try {
+        const pResp = await fetch(
+          `https://graph.facebook.com/${v}/${pubData.id}?fields=permalink&access_token=${encodeURIComponent(creds.accessToken)}`
+        );
+        const pData = await pResp.json().catch(() => ({}));
+        if (pData && pData.permalink) permalink = pData.permalink;
+      } catch {}
+      return { status: 'published', externalId: String(pubData.id), url: permalink };
+    }
+
+    if (!creds.accessToken || !creds.fbPageId) {
+      throw new Error('Meta integrácia nie je nakonfigurovaná (chýba Access Token alebo FB Page ID).');
+    }
+    const fbResp = await fetch(`https://graph.facebook.com/${v}/${encodeURIComponent(creds.fbPageId)}/photos`, {
+      method: 'POST',
+      body: new URLSearchParams({
+        url: socialUrl,
+        message: caption,
+        access_token: creds.accessToken,
+      }),
+    });
+    const fbData = await fbResp.json().catch(() => ({}));
+    if (!fbResp.ok || (!fbData.id && !fbData.post_id)) {
+      throw new Error((fbData.error && fbData.error.message) || `FB /photos HTTP ${fbResp.status}`);
+    }
+    const postId = String(fbData.post_id || fbData.id);
+    return {
+      status: 'published',
+      externalId: postId,
+      url: `https://www.facebook.com/${postId.replace('_', '/posts/')}`,
+    };
+  }
+
+  if (key === 'aukro') {
+    const resolved = await resolveProviderCredentials(env, 'aukro');
+    if (resolved.error) throw new Error(resolved.error);
+    const { creds, source } = resolved;
+    const price = resolvePortalPrice(artwork, 'aukro');
+    if (!(price > 0)) {
+      throw new Error('Dielo nemá zadanú cenu pre Aukro (ani základnú cenu €).');
+    }
+    const base = String(creds.apiBaseUrl || 'https://api.aukro.cz/v1').replace(/\/+$/, '');
+    let token = creds.accessToken;
+    if (!token && creds.refreshToken && creds.clientId && creds.clientSecret) {
+      const refreshed = await refreshAukroAccessToken(env, creds);
+      token = refreshed.accessToken;
+      if (source === 'db' && env.AUTOMATION_ENCRYPTION_KEY) {
+        const enc = await encryptCredentials({ ...creds, ...refreshed }, env.AUTOMATION_ENCRYPTION_KEY);
+        await updateIntegrationRecord(env, 'aukro', { encrypted_credentials: enc, expires_at: refreshed.expiresAt });
+      }
+    }
+    if (!token) {
+      throw new Error('Aukro integrácia nie je nakonfigurovaná (chýba Access Token).');
+    }
+
+    const r2Key = urlToR2Key(artwork.coverImage);
+    const obj = r2Key ? await env.IMAGES.get(r2Key) : null;
+    if (!obj) throw new Error('Čistá fotka diela sa nenašla v R2.');
+    const imgBuf = await obj.arrayBuffer();
+
+    const imgResp = await fetch(`${base}/offers/images`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'image/jpeg',
+      },
+      body: imgBuf,
+    });
+    const imgData = await imgResp.json().catch(() => ({}));
+    if (!imgResp.ok) {
+      throw new Error(imgData.message || `Aukro upload obrázka HTTP ${imgResp.status}`);
+    }
+
+    const asDraft = !channelRow.autoPublish;
+    const payload = {
+      name: String(artwork.title || 'Originálna akrylová maľba').slice(0, 75),
+      description: buildMarketplaceDescriptionServer(artwork, origin),
+      categoryId: creds.categoryId ? Number(creds.categoryId) : undefined,
+      price: {
+        amount: price,
+        currency: creds.currency || 'EUR',
+      },
+      images: imgData.url ? [{ url: imgData.url }] : (imgData.id ? [{ id: imgData.id }] : []),
+      active: !asDraft,
+    };
+    const offerResp = await fetch(`${base}/offers`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    const offerData = await offerResp.json().catch(() => ({}));
+    if (!offerResp.ok || !offerData.id) {
+      throw new Error(offerData.message || `Aukro vytvorenie ponuky HTTP ${offerResp.status}`);
+    }
+    return {
+      status: asDraft ? 'drafted' : 'published',
+      externalId: String(offerData.id),
+      url: offerData.url || '',
+    };
+  }
+
+  return { status: 'skipped_unimplemented', note: `${channelRow.label} zatiaľ nie je implementované.` };
+};
+
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(refreshExpiringIntegrations(env, { force: false }));
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url);
     const pathname = url.pathname;
@@ -30,18 +826,6 @@ export default {
     }
 
     // ---- Crypto & Auth Helpers ----
-    const hexToBytes = (hex) => {
-      const clean = (hex || '').trim();
-      const bytes = new Uint8Array(clean.length / 2);
-      for (let i = 0; i < bytes.length; i++) {
-        bytes[i] = parseInt(clean.substr(i * 2, 2), 16);
-      }
-      return bytes;
-    };
-
-    const bytesToHex = (bytes) =>
-      Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-
     const timingSafeEqualHex = (a, b) => {
       if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) {
         return false;
@@ -147,19 +931,6 @@ export default {
         return { widthCm: 50, heightCm: 70 };
       }
       return { widthCm: w, heightCm: h };
-    };
-
-    const urlToR2Key = (imageUrl) => {
-      if (typeof imageUrl !== 'string' || !imageUrl) return null;
-      let clean = imageUrl.split('?')[0].split('#')[0];
-      if (clean.startsWith('/')) clean = clean.substring(1);
-      if (clean.startsWith('images/')) clean = clean.substring('images/'.length);
-      try {
-        clean = decodeURIComponent(clean);
-      } catch {
-        // keep as-is
-      }
-      return clean.startsWith('paintings/') ? clean : null;
     };
 
     const decodeDataImage = (dataUrl) => {
@@ -678,93 +1449,7 @@ export default {
       }
     }
 
-    // ---- 3. Automation Schema & Channel Controls ----
-    const DEFAULT_AUTOMATION_CHANNELS = [
-      { channel_key: 'instagram', label: 'Instagram', kind: 'social', image_variant: 'stylized', adapter: 'meta_ig', implemented: 1, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 1 },
-      { channel_key: 'facebook', label: 'Facebook', kind: 'social', image_variant: 'stylized', adapter: 'meta_fb', implemented: 1, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 2 },
-      { channel_key: 'aukro', label: 'Aukro', kind: 'marketplace', image_variant: 'clean', adapter: 'aukro', implemented: 1, enabled: 0, auto_publish: 0, config_json: '{}', sort_order: 3 },
-      { channel_key: 'sashe', label: 'Sashe.sk', kind: 'marketplace', image_variant: 'clean', adapter: 'sashe', implemented: 1, enabled: 0, auto_publish: 0, config_json: '{}', sort_order: 4 },
-      { channel_key: 'pinterest', label: 'Pinterest', kind: 'social', image_variant: 'stylized', adapter: 'pinterest', implemented: 0, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 5 },
-      { channel_key: 'tiktok', label: 'TikTok', kind: 'social', image_variant: 'stylized', adapter: 'tiktok', implemented: 0, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 6 },
-      { channel_key: 'threads', label: 'Threads', kind: 'social', image_variant: 'stylized', adapter: 'threads', implemented: 0, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 7 },
-      { channel_key: 'x', label: 'X (Twitter)', kind: 'social', image_variant: 'stylized', adapter: 'x', implemented: 0, enabled: 0, auto_publish: 1, config_json: '{}', sort_order: 8 },
-      { channel_key: 'etsy', label: 'Etsy', kind: 'marketplace', image_variant: 'clean', adapter: 'etsy', implemented: 0, enabled: 0, auto_publish: 0, config_json: '{}', sort_order: 9 },
-    ];
-
-    const parseJsonSafe = (str, fallback) => {
-      if (!str || typeof str !== 'string') return fallback;
-      try {
-        const parsed = JSON.parse(str);
-        return parsed && typeof parsed === 'object' ? parsed : fallback;
-      } catch {
-        return fallback;
-      }
-    };
-
-    const toAbsoluteUrl = (origin, relOrAbs) => {
-      if (!relOrAbs || typeof relOrAbs !== 'string') return '';
-      if (/^https?:\/\//i.test(relOrAbs)) return relOrAbs;
-      return `${origin}/${relOrAbs.replace(/^\/+/, '')}`;
-    };
-
-    const ensureAutomationSchema = async () => {
-      if (automationSchemaReady) return;
-      const { results: cols } = await env.DB.prepare(`PRAGMA table_info(artworks)`).all();
-      const existingCols = new Set((cols || []).map((c) => c.name));
-      const alterQueries = [];
-      if (!existingCols.has('price_eur')) alterQueries.push(`ALTER TABLE artworks ADD COLUMN price_eur REAL`);
-      if (!existingCols.has('social_image_url')) alterQueries.push(`ALTER TABLE artworks ADD COLUMN social_image_url TEXT DEFAULT ''`);
-      if (!existingCols.has('publish_status_json')) alterQueries.push(`ALTER TABLE artworks ADD COLUMN publish_status_json TEXT DEFAULT '{}'`);
-      if (!existingCols.has('publish_channels_json')) alterQueries.push(`ALTER TABLE artworks ADD COLUMN publish_channels_json TEXT DEFAULT '{}'`);
-
-      for (const q of alterQueries) {
-        try {
-          await env.DB.prepare(q).run();
-        } catch (err) {
-          if (!/duplicate column/i.test(String(err && err.message))) throw err;
-        }
-      }
-
-      await env.DB.prepare(`
-        CREATE TABLE IF NOT EXISTS automation_channels (
-          channel_key TEXT PRIMARY KEY,
-          label TEXT NOT NULL,
-          kind TEXT NOT NULL,
-          image_variant TEXT NOT NULL DEFAULT 'stylized',
-          adapter TEXT NOT NULL,
-          implemented INTEGER DEFAULT 0,
-          enabled INTEGER DEFAULT 0,
-          auto_publish INTEGER DEFAULT 0,
-          config_json TEXT DEFAULT '{}',
-          sort_order INTEGER DEFAULT 0,
-          updated_at TEXT DEFAULT ''
-        )
-      `).run();
-
-      const seedStmts = DEFAULT_AUTOMATION_CHANNELS.map((ch) =>
-        env.DB.prepare(`
-          INSERT OR IGNORE INTO automation_channels
-            (channel_key, label, kind, image_variant, adapter, implemented, enabled, auto_publish, config_json, sort_order, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(
-          ch.channel_key,
-          ch.label,
-          ch.kind,
-          ch.image_variant,
-          ch.adapter,
-          ch.implemented,
-          ch.enabled,
-          ch.auto_publish,
-          ch.config_json,
-          ch.sort_order,
-          ''
-        )
-      );
-      if (seedStmts.length > 0) {
-        await env.DB.batch(seedStmts);
-      }
-      automationSchemaReady = true;
-    };
+    // ---- 3. Automation Schema, Channels, Integrations & Direct Publishing ----
 
     const serializeChannelRow = (r) => ({
       key: r.channel_key,
@@ -802,6 +1487,7 @@ export default {
         heightCm,
         depthCm,
         priceEur: Number.isFinite(rawPrice) ? rawPrice : null,
+        portalPrices: parseJsonSafe(art.portal_prices_json, {}),
         instagramUrl: art.instagram_url || '',
         rawImage: art.raw_image || '',
         socialImageUrl: art.social_image_url || '',
@@ -829,12 +1515,231 @@ export default {
         .map((ch) => ch.key);
     };
 
+    // GET /api/automation/integrations (Authenticated)
+    if (pathname === '/api/automation/integrations' && request.method === 'GET') {
+      try {
+        const auth = await isAuthorizedForAutomation(request);
+        if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
+        await ensureAutomationSchema(env);
+
+        const integrations = [];
+        for (const p of INTEGRATION_PROVIDERS) {
+          const resolved = await resolveProviderCredentials(env, p.provider);
+          integrations.push(sanitizeIntegrationSummary(resolved));
+        }
+
+        return jsonResponse({
+          encryptionKeyConfigured: Boolean(env.AUTOMATION_ENCRYPTION_KEY && String(env.AUTOMATION_ENCRYPTION_KEY).trim()),
+          integrations,
+        });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // POST /api/automation/integrations/refresh (Authenticated)
+    if (pathname === '/api/automation/integrations/refresh' && request.method === 'POST') {
+      try {
+        const auth = await isAuthorizedForAutomation(request);
+        if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const body = await request.json().catch(() => ({}));
+        const results = await refreshExpiringIntegrations(env, { force: body && body.force !== false });
+        return jsonResponse({ success: true, results });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // PUT /api/automation/integrations/:provider (Authenticated)
+    if (pathname.startsWith('/api/automation/integrations/') && !pathname.endsWith('/test') && request.method === 'PUT') {
+      try {
+        const auth = await isAuthorizedForAutomation(request);
+        if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
+        await ensureAutomationSchema(env);
+
+        const provider = decodeURIComponent(pathname.substring('/api/automation/integrations/'.length)).trim();
+        const meta = getProviderMeta(provider);
+        if (!meta) return jsonResponse({ error: 'Neznámy poskytovateľ integrácie.' }, 404);
+        if (!env.AUTOMATION_ENCRYPTION_KEY || !String(env.AUTOMATION_ENCRYPTION_KEY).trim()) {
+          return jsonResponse({
+            error: 'Na serveri chýba AUTOMATION_ENCRYPTION_KEY v Cloudflare Secrets. Nastav ho príkazom: npx wrangler secret put AUTOMATION_ENCRYPTION_KEY',
+          }, 400);
+        }
+
+        const body = await request.json();
+        const incoming = body && typeof body.credentials === 'object' && body.credentials ? body.credentials : {};
+        const prevResolved = await resolveProviderCredentials(env, provider);
+        const merged = { ...(prevResolved.source === 'db' ? prevResolved.creds : {}) };
+        for (const f of meta.fields) {
+          if (incoming[f.key] !== undefined && String(incoming[f.key]).trim() !== '') {
+            merged[f.key] = String(incoming[f.key]).trim();
+          }
+        }
+
+        const encrypted = await encryptCredentials(merged, env.AUTOMATION_ENCRYPTION_KEY);
+        const nowIso = new Date().toISOString();
+        const expiresAt = body && typeof body.expiresAt === 'string'
+          ? body.expiresAt.trim()
+          : ((prevResolved.row && prevResolved.row.expires_at) || '');
+
+        await updateIntegrationRecord(env, provider, {
+          encrypted_credentials: encrypted,
+          status: 'configured',
+          expires_at: expiresAt,
+          last_error: '',
+          updated_at: nowIso,
+        });
+
+        const fresh = await resolveProviderCredentials(env, provider);
+        return jsonResponse({ success: true, integration: sanitizeIntegrationSummary(fresh) });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // DELETE /api/automation/integrations/:provider (Authenticated)
+    if (pathname.startsWith('/api/automation/integrations/') && !pathname.endsWith('/test') && request.method === 'DELETE') {
+      try {
+        const auth = await isAuthorizedForAutomation(request);
+        if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
+        await ensureAutomationSchema(env);
+
+        const provider = decodeURIComponent(pathname.substring('/api/automation/integrations/'.length)).trim();
+        if (!getProviderMeta(provider)) return jsonResponse({ error: 'Neznámy poskytovateľ integrácie.' }, 404);
+
+        await updateIntegrationRecord(env, provider, {
+          encrypted_credentials: '',
+          account_id: '',
+          account_name: '',
+          status: 'disconnected',
+          expires_at: '',
+          last_error: '',
+          updated_at: new Date().toISOString(),
+        });
+
+        const fresh = await resolveProviderCredentials(env, provider);
+        return jsonResponse({ success: true, integration: sanitizeIntegrationSummary(fresh) });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // POST /api/automation/integrations/:provider/test (Authenticated)
+    if (pathname.startsWith('/api/automation/integrations/') && pathname.endsWith('/test') && request.method === 'POST') {
+      try {
+        const auth = await isAuthorizedForAutomation(request);
+        if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
+        await ensureAutomationSchema(env);
+
+        const provider = decodeURIComponent(
+          pathname.slice('/api/automation/integrations/'.length, -'/test'.length)
+        ).trim();
+        if (!getProviderMeta(provider)) return jsonResponse({ error: 'Neznámy poskytovateľ integrácie.' }, 404);
+
+        try {
+          const testRes = await testProviderConnection(env, provider);
+          const fresh = await resolveProviderCredentials(env, provider);
+          return jsonResponse({ ok: true, ...testRes, integration: sanitizeIntegrationSummary(fresh) });
+        } catch (testErr) {
+          const fresh = await resolveProviderCredentials(env, provider);
+          return jsonResponse({ ok: false, error: testErr.message, integration: sanitizeIntegrationSummary(fresh) }, 200);
+        }
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // POST /api/automation/publish/:id - Direct 1-click publish to API channels (Authenticated)
+    if (pathname.startsWith('/api/automation/publish/') && request.method === 'POST') {
+      try {
+        const auth = await isAuthorizedForAutomation(request);
+        if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
+        await ensureAutomationSchema(env);
+
+        const id = decodeURIComponent(pathname.substring('/api/automation/publish/'.length)).trim();
+        const artRow = await env.DB.prepare(`SELECT * FROM artworks WHERE id = ?`).bind(id).first();
+        if (!artRow) return jsonResponse({ error: 'Dielo neexistuje.' }, 404);
+
+        const [{ results: imgRows }, { results: chRows }] = await Promise.all([
+          env.DB.prepare(`SELECT image_url FROM artwork_images WHERE artwork_id = ? ORDER BY sort_order ASC`).bind(id).all(),
+          env.DB.prepare(`SELECT * FROM automation_channels ORDER BY sort_order ASC, channel_key ASC`).all(),
+        ]);
+
+        const imgMap = { [id]: (imgRows || []).map((r) => r.image_url) };
+        const artwork = serializeArtworkRow(artRow, imgMap);
+        const channels = (chRows || []).map(serializeChannelRow);
+        const channelMap = new Map(channels.map((c) => [c.key, c]));
+
+        const body = await request.json().catch(() => ({}));
+        const requestedKeys = Array.isArray(body.channels) && body.channels.length > 0
+          ? body.channels.map((k) => String(k).trim()).filter((k) => channelMap.has(k))
+          : channels.filter((c) => c.enabled && artwork.publishChannels[c.key] !== false).map((c) => c.key);
+
+        if (requestedKeys.length === 0) {
+          return jsonResponse({ error: 'Nie je vybraný ani zapnutý žiadny cieľový kanál.' }, 400);
+        }
+
+        const currentStatus = { ...(artwork.publishStatus || {}) };
+        const nowIso = new Date().toISOString();
+        const results = {};
+        let nextInstagramUrl = null;
+
+        for (const key of requestedKeys) {
+          const ch = channelMap.get(key);
+          try {
+            const res = await publishToSingleChannel(env, url.origin, artwork, ch);
+            results[key] = res;
+            if (res.status === 'published' || res.status === 'drafted' || res.status === 'pending') {
+              currentStatus[key] = {
+                status: res.status,
+                externalId: res.externalId || '',
+                url: res.url || '',
+                note: res.note || '',
+                updatedAt: nowIso,
+              };
+              if (key === 'instagram' && res.url && !artwork.instagramUrl) {
+                nextInstagramUrl = res.url;
+              }
+            }
+          } catch (chErr) {
+            const errMsg = chErr && chErr.message ? chErr.message : 'Neznáma chyba';
+            results[key] = { status: 'error', error: errMsg };
+            currentStatus[key] = {
+              status: 'error',
+              error: errMsg,
+              updatedAt: nowIso,
+            };
+          }
+        }
+
+        if (nextInstagramUrl) {
+          await env.DB.prepare(
+            `UPDATE artworks SET publish_status_json = ?, instagram_url = ? WHERE id = ?`
+          ).bind(JSON.stringify(currentStatus), nextInstagramUrl, id).run();
+        } else {
+          await env.DB.prepare(
+            `UPDATE artworks SET publish_status_json = ? WHERE id = ?`
+          ).bind(JSON.stringify(currentStatus), id).run();
+        }
+
+        return jsonResponse({
+          success: true,
+          artworkId: id,
+          results,
+          publishStatus: currentStatus,
+          instagramUrl: nextInstagramUrl || artwork.instagramUrl || '',
+        });
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
     // GET /api/automation/channels (Authenticated: Bearer key or Admin session)
     if (pathname === '/api/automation/channels' && request.method === 'GET') {
       try {
         const auth = await isAuthorizedForAutomation(request);
         if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
-        await ensureAutomationSchema();
+        await ensureAutomationSchema(env);
 
         const [{ results: chRows }, { results: artRows }] = await Promise.all([
           env.DB.prepare(`SELECT * FROM automation_channels ORDER BY sort_order ASC, channel_key ASC`).all(),
@@ -873,7 +1778,7 @@ export default {
       try {
         const auth = await isAuthorizedForAutomation(request);
         if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
-        await ensureAutomationSchema();
+        await ensureAutomationSchema(env);
 
         const key = decodeURIComponent(pathname.substring('/api/automation/channels/'.length)).trim();
         const existing = await env.DB.prepare(`SELECT * FROM automation_channels WHERE channel_key = ?`).bind(key).first();
@@ -909,7 +1814,7 @@ export default {
       try {
         const auth = await isAuthorizedForAutomation(request);
         if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
-        await ensureAutomationSchema();
+        await ensureAutomationSchema(env);
 
         const channelParam = (url.searchParams.get('channel') || '').trim();
         const artworkIdParam = (url.searchParams.get('artworkId') || '').trim();
@@ -971,7 +1876,7 @@ export default {
       try {
         const auth = await isAuthorizedForAutomation(request);
         if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
-        await ensureAutomationSchema();
+        await ensureAutomationSchema(env);
 
         const body = await request.json();
         const artworkId = (body && body.artworkId ? String(body.artworkId) : '').trim();
@@ -1020,7 +1925,7 @@ export default {
       try {
         const auth = await isAuthorizedForAutomation(request);
         if (!auth.authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
-        await ensureAutomationSchema();
+        await ensureAutomationSchema(env);
 
         const id = decodeURIComponent(pathname.substring('/api/automation/status/'.length));
         const existing = await env.DB.prepare(
@@ -1084,7 +1989,7 @@ export default {
     // GET /api/artworks - Public catalog from D1
     if (pathname === '/api/artworks' && request.method === 'GET') {
       try {
-        await ensureAutomationSchema();
+        await ensureAutomationSchema(env);
         const { results: artworks } = await env.DB.prepare(
           `SELECT * FROM artworks ORDER BY sort_order ASC, date_created DESC, id DESC`
         ).all();
@@ -1114,7 +2019,7 @@ export default {
         if (!session.authenticated) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
-        await ensureAutomationSchema();
+        await ensureAutomationSchema(env);
 
         const body = await request.json();
         const {
@@ -1130,6 +2035,8 @@ export default {
           heightCm,
           depthCm = 4,
           priceEur = null,
+          portalPrices = {},
+          socialImageUrl = '',
           publishChannels = {},
           instagramUrl = '',
           rawImage = '',
@@ -1156,6 +2063,15 @@ export default {
         const resolvedPrice = priceEur !== null && priceEur !== undefined && priceEur !== '' && Number.isFinite(Number(priceEur)) && Number(priceEur) >= 0
           ? Number(priceEur)
           : null;
+        const sanitizedPortalPrices = {};
+        if (portalPrices && typeof portalPrices === 'object') {
+          for (const [pk, pv] of Object.entries(portalPrices)) {
+            if (pv !== null && pv !== undefined && pv !== '' && Number.isFinite(Number(pv)) && Number(pv) >= 0) {
+              sanitizedPortalPrices[pk] = Number(pv);
+            }
+          }
+        }
+        const resolvedPortalPricesJson = JSON.stringify(sanitizedPortalPrices);
         const resolvedPublishChannelsJson = publishChannels && typeof publishChannels === 'object'
           ? JSON.stringify(publishChannels)
           : '{}';
@@ -1189,11 +2105,12 @@ export default {
         }
 
         const resolvedCover = resolvedImgs[0] || (coverImage && !coverImage.startsWith('data:image/') ? coverImage : '');
+        const resolvedSocialImg = (typeof socialImageUrl === 'string' && !socialImageUrl.startsWith('data:')) ? socialImageUrl : '';
 
         await env.DB.prepare(`
           INSERT OR REPLACE INTO artworks
-            (id, folder_name, title, date_created, year, technique, medium, dimensions, width_cm, height_cm, depth_cm, price_eur, instagram_url, raw_image, social_image_url, publish_status_json, publish_channels_json, sort_order, status, description, cover_image, photo_count)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, folder_name, title, date_created, year, technique, medium, dimensions, width_cm, height_cm, depth_cm, price_eur, portal_prices_json, instagram_url, raw_image, social_image_url, publish_status_json, publish_channels_json, sort_order, status, description, cover_image, photo_count)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
           .bind(
             id,
@@ -1208,9 +2125,10 @@ export default {
             resolvedHeight,
             resolvedDepth,
             resolvedPrice,
+            resolvedPortalPricesJson,
             instagramUrl ?? '',
             resolvedRawImage,
-            '',
+            resolvedSocialImg,
             '{}',
             resolvedPublishChannelsJson,
             Number.isFinite(Number(sortOrder)) ? Number(sortOrder) : 0,
@@ -1237,6 +2155,8 @@ export default {
           success: true,
           id,
           priceEur: resolvedPrice,
+          portalPrices: sanitizedPortalPrices,
+          socialImageUrl: resolvedSocialImg,
           coverImage: resolvedCover,
           detailImages: resolvedImgs,
           rawImage: resolvedRawImage,
@@ -1373,7 +2293,7 @@ export default {
         if (!session.authenticated) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
-        await ensureAutomationSchema();
+        await ensureAutomationSchema(env);
 
         const id = decodeURIComponent(pathname.substring('/api/artworks/'.length));
         const body = await request.json();
@@ -1386,6 +2306,8 @@ export default {
           heightCm,
           depthCm,
           priceEur,
+          portalPrices,
+          socialImageUrl,
           publishChannels,
           instagramUrl,
           rawImage,
@@ -1400,7 +2322,7 @@ export default {
         } = body;
 
         const existingArtRow = await env.DB.prepare(
-          `SELECT folder_name, raw_image, price_eur FROM artworks WHERE id = ?`
+          `SELECT folder_name, raw_image, price_eur, portal_prices_json, social_image_url FROM artworks WHERE id = ?`
         )
           .bind(id)
           .first();
@@ -1440,6 +2362,18 @@ export default {
             syncedPrice = parsedPrice;
           }
         }
+
+        let syncedPortalPrices = null;
+        if (portalPrices !== undefined && portalPrices !== null && typeof portalPrices === 'object') {
+          const cleanPortalPrices = {};
+          for (const [pk, pv] of Object.entries(portalPrices)) {
+            if (pv !== null && pv !== undefined && pv !== '' && Number.isFinite(Number(pv)) && Number(pv) >= 0) {
+              cleanPortalPrices[pk] = Number(pv);
+            }
+          }
+          syncedPortalPrices = JSON.stringify(cleanPortalPrices);
+        }
+
         const syncedPublishChannelsJson = publishChannels !== undefined && publishChannels !== null && typeof publishChannels === 'object'
           ? JSON.stringify(publishChannels)
           : null;
@@ -1454,6 +2388,7 @@ export default {
               height_cm = COALESCE(?, height_cm),
               depth_cm = COALESCE(?, depth_cm),
               price_eur = ?,
+              portal_prices_json = COALESCE(?, portal_prices_json),
               publish_channels_json = COALESCE(?, publish_channels_json),
               instagram_url = COALESCE(?, instagram_url),
               raw_image = COALESCE(?, raw_image),
@@ -1473,6 +2408,7 @@ export default {
             syncedHeight,
             syncedDepth,
             syncedPrice,
+            syncedPortalPrices,
             syncedPublishChannelsJson,
             instagramUrl ?? null,
             (existingArtRow && existingArtRow.raw_image && !uploadedRawUrl) ? null : (uploadedRawUrl ?? rawImage ?? null),
@@ -1488,6 +2424,7 @@ export default {
         let resolvedImages;
         let deletedKeys = [];
         let preservedRawImage = uploadedRawUrl || null;
+        let resolvedSocialUrl = socialImageUrl !== undefined ? socialImageUrl : (existingArtRow ? existingArtRow.social_image_url : '');
 
         if (oldRawToClean) {
           const cleanedRaw = await deleteUnusedR2Images([oldRawToClean]);
@@ -1511,6 +2448,7 @@ export default {
               const uploadedUrl = await uploadDataImageWithThumb(entry, thumbCandidate, folder, idx === 0 ? 'cover' : 'detail');
               if (uploadedUrl) {
                 if (idx === 0) uploadedNewCover = true;
+                if (socialImageUrl === entry) resolvedSocialUrl = uploadedUrl;
                 resolvedImages.push(uploadedUrl);
                 continue;
               }
@@ -1550,7 +2488,20 @@ export default {
           }
         }
 
-        const respPayload = { success: true, id, priceEur: syncedPrice, deletedFiles: deletedKeys.length };
+        if (socialImageUrl !== undefined) {
+          const safeSocial = (typeof resolvedSocialUrl === 'string' && !resolvedSocialUrl.startsWith('data:')) ? resolvedSocialUrl : '';
+          await env.DB.prepare(`UPDATE artworks SET social_image_url = ? WHERE id = ?`)
+            .bind(safeSocial, id)
+            .run();
+          if (existingArtRow && existingArtRow.social_image_url && existingArtRow.social_image_url !== safeSocial) {
+            const cleanedSoc = await deleteUnusedR2Images([existingArtRow.social_image_url]);
+            deletedKeys.push(...cleanedSoc);
+          }
+          resolvedSocialUrl = safeSocial;
+        }
+
+        const respPayload = { success: true, id, priceEur: syncedPrice, socialImageUrl: resolvedSocialUrl || '', deletedFiles: deletedKeys.length };
+        if (syncedPortalPrices) respPayload.portalPrices = parseJsonSafe(syncedPortalPrices, {});
         if (syncedWidth) respPayload.widthCm = syncedWidth;
         if (syncedHeight) respPayload.heightCm = syncedHeight;
         if (syncedDepth) respPayload.depthCm = syncedDepth;
@@ -1575,7 +2526,7 @@ export default {
         if (!session.authenticated) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
-        await ensureAutomationSchema();
+        await ensureAutomationSchema(env);
 
         const id = decodeURIComponent(pathname.substring('/api/artworks/'.length));
 

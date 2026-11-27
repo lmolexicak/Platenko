@@ -97,10 +97,13 @@ class SasheAdapter extends BasePublisherAdapter {
         await descInput.fill(buildMarketplaceDescription(artwork, ctx));
       }
 
-      if (artwork.priceEur && Number(artwork.priceEur) > 0) {
+      const sashePrice = artwork.portalPrices && Number(artwork.portalPrices.sashe) > 0
+        ? Number(artwork.portalPrices.sashe)
+        : (artwork.priceEur && Number(artwork.priceEur) > 0 ? Number(artwork.priceEur) : null);
+      if (sashePrice) {
         const priceInput = page.locator('input[name*="cena"], input[name*="price"], #cena').first();
         if (await priceInput.count()) {
-          await priceInput.fill(String(artwork.priceEur));
+          await priceInput.fill(String(sashePrice));
         }
       }
 

@@ -2304,6 +2304,115 @@ body.adm-is-dragging {
   }
 }
 
+/* Per-Portal Pricing Grid, Social Photo Picker & Integrations Cards */
+.adm-prices-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.adm-photo-badge.social {
+  top: auto;
+  bottom: 6px;
+  left: 6px;
+  background: rgba(99, 102, 241, 0.94);
+  color: #fff;
+}
+
+.adm-photo-item.is-social {
+  border-color: #6366f1;
+}
+
+.adm-photo-tool.is-active {
+  background: #6366f1;
+  color: #fff;
+}
+
+.adm-publish-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.adm-publish-results {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.78rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.adm-pub-res-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.adm-auto-tab-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.adm-integ-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.adm-integ-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.adm-integ-meta {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.adm-integ-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+
+.adm-integ-badge.connected { background: #DCFCE7; color: #166534; }
+.adm-integ-badge.configured { background: #E0E7FF; color: #3730A3; }
+.adm-integ-badge.error { background: #FEE2E2; color: #991B1B; }
+.adm-integ-badge.disconnected { background: var(--bg-surface); color: var(--text-muted); border: 1px solid var(--border-color); }
+
+.adm-integ-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.adm-integ-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 /* 4-Point Perspective Modal */
 .warp-modal-box {
   background: var(--bg-surface);

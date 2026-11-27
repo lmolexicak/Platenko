@@ -43,9 +43,12 @@ class AukroAdapter extends BasePublisherAdapter {
   async publish(artwork, ctx) {
     const { env, apiClient, channelConfig, dryRun } = ctx;
     const base = String(env.AUKRO_API_BASE_URL || "https://api.aukro.cz/v1").replace(/\/+$/, "");
-    const price = Number(artwork.priceEur);
+    const portalPrice = artwork.portalPrices && Number(artwork.portalPrices.aukro) > 0
+      ? Number(artwork.portalPrices.aukro)
+      : null;
+    const price = portalPrice ?? Number(artwork.priceEur);
     if (!(price > 0)) {
-      throw new Error(`Dielo „${artwork.title}" nemá zadanú cenu (EUR) v Admin CMS.`);
+      throw new Error(`Dielo „${artwork.title}" nemá zadanú cenu pre Aukro (ani základnú cenu EUR) v Admin CMS.`);
     }
     if (!artwork.cleanImageUrl) {
       throw new Error("Chýba čistá fotka diela pre Aukro.");

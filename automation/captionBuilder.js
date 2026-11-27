@@ -4,21 +4,17 @@
 export function buildSocialCaption(artwork, ctx = {}, options = {}) {
   const title = artwork.title || "Originálna maľba";
   const dims = artwork.dimensions || `${artwork.widthCm || 50} × ${artwork.heightCm || 70} cm`;
-  const medium = artwork.medium || "Akryl na plátne";
-  const technique = artwork.technique ? ` · ${artwork.technique}` : "";
   const desc = (artwork.description || "").trim();
   const baseUrl = String(ctx.baseUrl || "").replace(/\/+$/, "");
   const deepLink = baseUrl ? `${baseUrl}/?dielo=${encodeURIComponent(artwork.id)}` : "";
 
-  const lines = [`🎨 ${title}`, `${dims} · ${medium}${technique}`];
-  if (artwork.priceEur && Number(artwork.priceEur) > 0) {
-    lines.push(`Cena: ${Number(artwork.priceEur)} €`);
-  }
+  // Format: Názov maľby, Rozmer, Popis, Link na web, Hashtagy (bez ceny)
+  const lines = [title, dims];
   if (desc) {
     lines.push("", desc);
   }
   if (deepLink) {
-    lines.push("", `Detail a náhľad na stene (AR 1:1): ${deepLink}`);
+    lines.push("", deepLink);
   }
   lines.push(
     "",

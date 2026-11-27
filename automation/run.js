@@ -98,10 +98,7 @@ async function main() {
     return;
   }
 
-  const needsStylized = args.stylizeOnly || targetChannelKeys.some((k) => {
-    const adapter = getAdapter(k);
-    return adapter && adapter.imageVariant === "stylized";
-  });
+  const needsStylized = args.stylizeOnly;
 
   let processedCount = 0;
   for (const art of artworks) {

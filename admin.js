@@ -16,6 +16,7 @@
   let pendingThumbMap = {}; // hiresDataUrl -> 600px thumbDataUrl
   let pendingRawDataUrl = null;
   let currentRawUrl = "";
+  let currentSocialImageUrl = "";
 
   // Dynamic D1 Lookups (Číselníky)
   let lookups = {
@@ -47,6 +48,9 @@
   let activeLookupCategory = "technique";
   let automationChannels = [];
   let automationSummary = { enabledCount: 0, totalChannels: 0, pendingArtworksCount: 0 };
+  let automationIntegrations = [];
+  let encryptionKeyConfigured = true;
+  let activeAutoTab = "channels";
   let editingPublishChannels = {};
 
   const dom = {};
@@ -66,14 +70,21 @@
 
     dom.automationModal = document.getElementById("automationModal");
     dom.automationCloseBtn = document.getElementById("automationCloseBtn");
+    dom.autoTabBtns = Array.from(document.querySelectorAll("#automationModal .auto-tab-btn"));
+    dom.autoTabChannels = document.getElementById("admAutoTabChannels");
+    dom.autoTabIntegrations = document.getElementById("admAutoTabIntegrations");
     dom.autoSummary = document.getElementById("admAutoSummary");
+    dom.autoWarningBanner = document.getElementById("admAutoWarningBanner");
     dom.autoStatusMsg = document.getElementById("admAutoStatusMsg");
     dom.autoSocialList = document.getElementById("admAutoSocialList");
     dom.autoMarketList = document.getElementById("admAutoMarketList");
+    dom.integEncryptionNotice = document.getElementById("admIntegEncryptionNotice");
+    dom.refreshTokensBtn = document.getElementById("admRefreshTokensBtn");
+    dom.integrationsList = document.getElementById("admIntegrationsList");
 
     dom.lookupsModal = document.getElementById("lookupsModal");
     dom.lookupsCloseBtn = document.getElementById("lookupsCloseBtn");
-    dom.lookupTabBtns = Array.from(document.querySelectorAll(".lookup-tab-btn"));
+    dom.lookupTabBtns = Array.from(document.querySelectorAll("#lookupsModal .lookup-tab-btn"));
     dom.lookupAddForm = document.getElementById("lookupAddForm");
     dom.lookupNewLabel = document.getElementById("lookupNewLabel");
     dom.lookupNewDimsWrap = document.getElementById("lookupNewDimsWrap");
@@ -122,6 +133,9 @@
     dom.status = document.getElementById("admStatus");
     dom.medium = document.getElementById("admMedium");
     dom.priceEur = document.getElementById("admPriceEur");
+    dom.priceAukro = document.getElementById("admPriceAukro");
+    dom.priceSashe = document.getElementById("admPriceSashe");
+    dom.priceEtsy = document.getElementById("admPriceEtsy");
     dom.instagramUrl = document.getElementById("admInstagramUrl");
     dom.instaTestLink = document.getElementById("admInstaTestLink");
     dom.description = document.getElementById("admDescription");
@@ -129,7 +143,11 @@
     dom.openAutoFromPanelBtn = document.getElementById("admOpenAutoFromPanelBtn");
     dom.socialThumbWrap = document.getElementById("admSocialThumbWrap");
     dom.socialThumbImg = document.getElementById("admSocialThumbImg");
+    dom.socialThumbTitle = document.getElementById("admSocialThumbTitle");
+    dom.socialThumbDesc = document.getElementById("admSocialThumbDesc");
     dom.publishStatusList = document.getElementById("admPublishStatusList");
+    dom.publishNowBtn = document.getElementById("admPublishNowBtn");
+    dom.publishResultBox = document.getElementById("admPublishResultBox");
     dom.statusMsg = document.getElementById("admStatusMsg");
     dom.saveBtn = document.getElementById("admSaveBtn");
 
@@ -589,11 +607,179 @@
     return row;
   }
 
+  function setAutoTab(tabName) {
+    activeAutoTab = tabName === "integrations" ? "integrations" : "channels";
+    (dom.autoTabBtns || []).forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.autoTab === activeAutoTab);
+    });
+    if (dom.autoTabChannels) dom.autoTabChannels.style.display = activeAutoTab === "channels" ? "flex" : "none";
+    if (dom.autoTabIntegrations) dom.autoTabIntegrations.style.display = activeAutoTab === "integrations" ? "flex" : "none";
+  }
+
+  async function loadAutomationIntegrations() {
+    try {
+      const resp = await fetch("/api/automation/integrations");
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      automationIntegrations = Array.isArray(data.integrations) ? data.integrations : [];
+      encryptionKeyConfigured = data.encryptionKeyConfigured !== false;
+      if (dom.automationModal && dom.automationModal.classList.contains("open")) {
+        renderAutomationModal();
+        renderIntegrationsList();
+      }
+    } catch (err) {
+      console.warn("Automation integrations load failed:", err);
+    }
+  }
+
+  function renderIntegrationsList() {
+    if (dom.integEncryptionNotice) {
+      if (!encryptionKeyConfigured) {
+        dom.integEncryptionNotice.style.display = "flex";
+        dom.integEncryptionNotice.innerHTML = `<span style="color:#b45309;">⚠️ Na Cloudflare Workeri chýba tajný kľúč <code>AUTOMATION_ENCRYPTION_KEY</code>. Nastav ho raz cez <code>npx wrangler secret put AUTOMATION_ENCRYPTION_KEY</code>, aby sa dali kľúče šifrovane ukladať cez UI.</span>`;
+      } else {
+        dom.integEncryptionNotice.style.display = "none";
+      }
+    }
+    if (!dom.integrationsList) return;
+    dom.integrationsList.innerHTML = "";
+
+    const badgeLabels = {
+      connected: "✓ Pripojené",
+      configured: "Uložené (čaká na test)",
+      error: "⚠️ Chyba",
+      disconnected: "Nepripojené",
+    };
+
+    automationIntegrations.forEach((integ) => {
+      const card = document.createElement("div");
+      card.className = "adm-integ-card";
+      card.dataset.provider = integ.provider;
+
+      const expStr = integ.expiresAt ? new Date(integ.expiresAt).toLocaleDateString("sk-SK") : "";
+      const sourceLabel = integ.source === "env_secret" ? "Cloudflare Secret" : (integ.source === "db" ? "Šifrované v D1" : "");
+
+      const fieldsHtml = (integ.fields || []).map((f) => `
+        <div>
+          <label class="edit-label" style="font-size:0.74rem;margin-bottom:3px;">
+            ${f.label} ${f.hasValue ? '<span style="color:#16a34a;">(uložené)</span>' : ""}
+          </label>
+          <input
+            type="${f.secret ? "password" : "text"}"
+            class="edit-input adm-integ-input"
+            data-field="${f.key}"
+            autocomplete="off"
+            placeholder="${f.hasValue ? "•••• (ponechaj prázdne pre zachovanie)" : (f.placeholder || "")}"
+          >
+        </div>
+      `).join("");
+
+      card.innerHTML = `
+        <div class="adm-integ-head">
+          <div>
+            <strong style="font-size:0.95rem;">${integ.label}</strong>
+            <div class="adm-integ-meta">
+              ${integ.accountName ? `<span>👤 ${integ.accountName}</span>` : ""}
+              ${sourceLabel ? `<span>🔒 ${sourceLabel}</span>` : ""}
+              ${expStr ? `<span>⏳ Platnosť do: ${expStr}</span>` : ""}
+            </div>
+          </div>
+          <span class="adm-integ-badge ${integ.status || "disconnected"}">${badgeLabels[integ.status] || integ.status}</span>
+        </div>
+        ${integ.lastError ? `<div class="settings-error" style="font-size:0.78rem;padding:6px 10px;margin:0;">${integ.lastError}</div>` : ""}
+        <div class="adm-integ-fields">${fieldsHtml}</div>
+        <div class="adm-integ-actions">
+          <button type="button" class="btn-primary adm-integ-save" style="padding:7px 14px;font-size:0.8rem;">💾 Uložiť (zašifrovať)</button>
+          <button type="button" class="btn-secondary adm-integ-test" style="padding:7px 14px;font-size:0.8rem;">🔍 Otestovať pripojenie</button>
+          ${integ.source === "db" ? `<button type="button" class="btn-secondary adm-integ-del" style="padding:7px 12px;font-size:0.8rem;color:#ef4444;">🔌 Odpojiť</button>` : ""}
+        </div>
+      `;
+
+      card.querySelector(".adm-integ-save").addEventListener("click", async () => {
+        const credentials = {};
+        card.querySelectorAll(".adm-integ-input").forEach((inp) => {
+          const val = inp.value.trim();
+          if (val) credentials[inp.dataset.field] = val;
+        });
+        if (Object.keys(credentials).length === 0) {
+          showAutoMsg("Zadaj aspoň jeden údaj na uloženie.", true);
+          return;
+        }
+        try {
+          const resp = await fetch(`/api/automation/integrations/${encodeURIComponent(integ.provider)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ credentials }),
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(data.error || ("HTTP " + resp.status));
+          await loadAutomationIntegrations();
+          showAutoMsg(`✓ ${integ.label}: údaje zašifrované a uložené.`);
+        } catch (err) {
+          showAutoMsg("Chyba uloženia integrácie: " + err.message, true);
+        }
+      });
+
+      card.querySelector(".adm-integ-test").addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        const orig = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "⏳ Testujem…";
+        try {
+          const resp = await fetch(`/api/automation/integrations/${encodeURIComponent(integ.provider)}/test`, {
+            method: "POST",
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(data.error || ("HTTP " + resp.status));
+          await loadAutomationIntegrations();
+          if (data.ok) {
+            showAutoMsg(`✓ ${integ.label}: pripojenie funkčné${data.accountName ? ` (${data.accountName})` : ""}.`);
+          } else {
+            showAutoMsg(`⚠️ ${integ.label}: ${data.error || "Test pripojenia zlyhal."}`, true);
+          }
+        } catch (err) {
+          showAutoMsg("Chyba testu: " + err.message, true);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = orig;
+        }
+      });
+
+      const delBtn = card.querySelector(".adm-integ-del");
+      if (delBtn) {
+        delBtn.addEventListener("click", async () => {
+          if (!confirm(`Odpojiť uložené prístupové údaje pre ${integ.label}?`)) return;
+          try {
+            const resp = await fetch(`/api/automation/integrations/${encodeURIComponent(integ.provider)}`, {
+              method: "DELETE",
+            });
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            await loadAutomationIntegrations();
+            showAutoMsg(`✓ ${integ.label}: integrácia odpojená.`);
+          } catch (err) {
+            showAutoMsg("Chyba odpojenia: " + err.message, true);
+          }
+        });
+      }
+
+      dom.integrationsList.appendChild(card);
+    });
+  }
+
   function renderAutomationModal() {
     if (dom.autoSummary) {
       const enabledCount = automationChannels.filter((c) => c.enabled).length;
       const pendingCount = automationSummary.pendingArtworksCount || 0;
       dom.autoSummary.textContent = `Aktívnych sietí: ${enabledCount} / ${automationChannels.length} · Čakajúcich diel: ${pendingCount}`;
+    }
+    if (dom.autoWarningBanner) {
+      const broken = automationIntegrations.filter((i) => i.status === "error");
+      if (broken.length > 0) {
+        dom.autoWarningBanner.style.display = "block";
+        dom.autoWarningBanner.textContent = `⚠️ Problém s pripojením: ${broken.map((b) => `${b.label} (${b.lastError || "chyba"})`).join(" · ")}`;
+      } else {
+        dom.autoWarningBanner.style.display = "none";
+      }
     }
     if (dom.autoSocialList) {
       dom.autoSocialList.innerHTML = "";
@@ -609,13 +795,16 @@
     }
   }
 
-  function openAutomationModal() {
+  function openAutomationModal(defaultTab = "channels") {
     if (!dom.automationModal) return;
     if (dom.autoStatusMsg) dom.autoStatusMsg.style.display = "none";
+    setAutoTab(defaultTab);
     renderAutomationModal();
+    renderIntegrationsList();
     dom.automationModal.classList.add("open");
     document.body.style.overflow = "hidden";
     loadAutomationChannels();
+    loadAutomationIntegrations();
   }
 
   function closeAutomationModal() {
@@ -631,11 +820,26 @@
       return;
     }
     dom.publishPanel.style.display = "flex";
+    if (dom.publishResultBox) dom.publishResultBox.style.display = "none";
+
+    const chosenSocial = currentSocialImageUrl || art.socialImageUrl || "";
+    const fallbackCover = albumPhotos[0] || art.coverImage || "";
+    const previewSocial = chosenSocial || fallbackCover;
 
     if (dom.socialThumbWrap && dom.socialThumbImg) {
-      if (art.socialImageUrl) {
-        dom.socialThumbImg.src = toThumbUrl(art.socialImageUrl);
+      if (previewSocial) {
+        dom.socialThumbImg.src = previewSocial.startsWith("data:")
+          ? (pendingThumbMap[previewSocial] || previewSocial)
+          : toThumbUrl(previewSocial);
         dom.socialThumbWrap.style.display = "flex";
+        if (dom.socialThumbTitle) {
+          dom.socialThumbTitle.textContent = chosenSocial
+            ? "Vybraná fotka pre sociálne siete (📱)"
+            : "Použije sa titulná fotka (alebo klikni 📱 na 3D fotku v albume)";
+        }
+        if (dom.socialThumbDesc) {
+          dom.socialThumbDesc.textContent = "Pre portály (Aukro / Sashe) sa použije vždy čistá titulná fotka.";
+        }
       } else {
         dom.socialThumbWrap.style.display = "none";
       }
@@ -644,24 +848,22 @@
     dom.publishStatusList.innerHTML = "";
     const statusMap = art.publishStatus || {};
     const channelsToShow = automationChannels.length > 0
-      ? automationChannels
+      ? automationChannels.filter((ch) => ch.implemented || ch.enabled || (statusMap[ch.key] && statusMap[ch.key].status))
       : [
-          { key: "instagram", label: "Instagram", enabled: false },
-          { key: "facebook", label: "Facebook", enabled: false },
-          { key: "aukro", label: "Aukro", enabled: false },
-          { key: "sashe", label: "Sashe.sk", enabled: false },
+          { key: "instagram", label: "Instagram", enabled: false, implemented: true },
+          { key: "facebook", label: "Facebook", enabled: false, implemented: true },
+          { key: "aukro", label: "Aukro", enabled: false, implemented: true },
+          { key: "sashe", label: "Sashe.sk", enabled: false, implemented: true },
         ];
 
     channelsToShow.forEach((ch) => {
       const entry = statusMap[ch.key] || {};
       const st = entry.status || "pending";
-      if (!ch.enabled && st === "pending" && editingPublishChannels[ch.key] === undefined) {
-        return;
-      }
-
       const chip = document.createElement("div");
       chip.className = "adm-pub-chip";
-      const isIncluded = editingPublishChannels[ch.key] !== false;
+      const isChecked = editingPublishChannels[ch.key] !== undefined
+        ? editingPublishChannels[ch.key] !== false
+        : Boolean(ch.enabled);
       const stateLabels = {
         published: "Publikované",
         drafted: "Koncept",
@@ -670,14 +872,14 @@
       };
 
       chip.innerHTML = `
-        <label class="adm-pub-chip-left" title="Zahrnúť toto dielo pre ${ch.label}">
-          <input type="checkbox" class="adm-art-ch-chk" ${isIncluded ? "checked" : ""}>
+        <label class="adm-pub-chip-left" title="Vybrať pre publikovanie na ${ch.label}">
+          <input type="checkbox" class="adm-art-ch-chk" data-channel="${ch.key}" ${isChecked ? "checked" : ""}>
           <span class="adm-pub-chip-name">${ch.label}</span>
         </label>
         <div style="display:inline-flex;align-items:center;gap:4px;">
-          <span class="adm-pub-state ${st}" title="${entry.error || entry.url || ""}">${stateLabels[st] || st}</span>
+          <span class="adm-pub-state ${st}" title="${entry.error || entry.url || entry.note || ""}">${stateLabels[st] || st}</span>
           ${(st === "error" || st === "published" || st === "drafted")
-            ? `<button type="button" class="adm-icon-btn adm-pub-reset" style="width:22px;height:22px;font-size:0.7rem;" title="Resetovať na čakajúce">↺</button>`
+            ? `<button type="button" class="adm-icon-btn adm-pub-reset" style="width:22px;height:22px;font-size:0.7rem;" title="Resetovať stav na čakajúce">↺</button>`
             : ""}
         </div>
       `;
@@ -709,9 +911,91 @@
 
       dom.publishStatusList.appendChild(chip);
     });
+  }
 
-    if (dom.publishStatusList.children.length === 0) {
-      dom.publishStatusList.innerHTML = `<span style="font-size:0.76rem;color:var(--text-muted);grid-column:1/-1;">Žiadna sieť nie je zatiaľ zapnutá — zapni požadované kanály cez „⚙️ Nastaviť siete“.</span>`;
+  function readPricesFromForm() {
+    const parseOptNum = (el) => {
+      if (!el) return null;
+      const s = el.value.trim();
+      if (s === "") return null;
+      const n = Number(s);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    };
+    const portalPrices = {};
+    const aukro = parseOptNum(dom.priceAukro);
+    const sashe = parseOptNum(dom.priceSashe);
+    const etsy = parseOptNum(dom.priceEtsy);
+    if (aukro !== null) portalPrices.aukro = aukro;
+    if (sashe !== null) portalPrices.sashe = sashe;
+    if (etsy !== null) portalPrices.etsy = etsy;
+    return { priceEur: parseOptNum(dom.priceEur), portalPrices };
+  }
+
+  async function publishNowForArtwork() {
+    if (!editingId || !dom.publishStatusList || !dom.publishNowBtn) return;
+    const selectedChannels = Array.from(dom.publishStatusList.querySelectorAll(".adm-art-ch-chk"))
+      .filter((chk) => chk.checked)
+      .map((chk) => chk.dataset.channel)
+      .filter(Boolean);
+
+    if (selectedChannels.length === 0) {
+      showStatusMsg("Zaškrtni aspoň jednu sieť alebo portál v paneli publikovania.", true);
+      return;
+    }
+
+    const origText = dom.publishNowBtn.textContent;
+    dom.publishNowBtn.disabled = true;
+    dom.publishNowBtn.textContent = "⏳ Ukladám & publikujem…";
+    if (dom.publishResultBox) {
+      dom.publishResultBox.style.display = "none";
+      dom.publishResultBox.innerHTML = "";
+    }
+
+    try {
+      // Ensure latest metadata, prices, album photos & 📱 social photo are saved before publishing
+      await persistCurrentEditingArtwork();
+
+      const resp = await fetch(`/api/automation/publish/${encodeURIComponent(editingId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channels: selectedChannels }),
+      });
+      if (resp.status === 401) {
+        showAuthGate("Prihlásenie vypršalo. Prihlás sa znova.");
+        return;
+      }
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || ("HTTP " + resp.status));
+
+      const art = artworks.find((a) => a.id === editingId);
+      if (art) {
+        art.publishStatus = data.publishStatus || {};
+        if (data.instagramUrl && !art.instagramUrl) {
+          art.instagramUrl = data.instagramUrl;
+          if (dom.instagramUrl) dom.instagramUrl.value = data.instagramUrl;
+        }
+        renderArtworkPublishPanel(art);
+      }
+      loadAutomationChannels();
+
+      if (dom.publishResultBox && data.results) {
+        dom.publishResultBox.style.display = "flex";
+        Object.entries(data.results).forEach(([chKey, res]) => {
+          const chObj = automationChannels.find((c) => c.key === chKey);
+          const label = chObj ? chObj.label : chKey;
+          const row = document.createElement("div");
+          row.className = "adm-pub-res-row";
+          const icon = res.status === "published" ? "✅" : (res.status === "drafted" ? "📝" : (res.status === "error" ? "❌" : "ℹ️"));
+          const detail = res.error || res.note || res.url || res.status;
+          row.innerHTML = `<strong>${icon} ${label}</strong><span style="color:${res.status === "error" ? "#dc2626" : "var(--text-muted)"};">${detail}</span>`;
+          dom.publishResultBox.appendChild(row);
+        });
+      }
+    } catch (err) {
+      showStatusMsg("Chyba publikovania: " + err.message, true);
+    } finally {
+      dom.publishNowBtn.disabled = false;
+      dom.publishNowBtn.textContent = origText;
     }
   }
 
@@ -779,12 +1063,15 @@
 
     albumPhotos.forEach((url, idx) => {
       const card = document.createElement("div");
-      card.className = `adm-photo-item${idx === 0 ? " is-cover" : ""}`;
+      const isSocial = Boolean(currentSocialImageUrl && url === currentSocialImageUrl);
+      card.className = `adm-photo-item${idx === 0 ? " is-cover" : ""}${isSocial ? " is-social" : ""}`;
       const thumbSrc = url.startsWith("data:") ? (pendingThumbMap[url] || url) : toThumbUrl(url);
       card.innerHTML = `
         <img src="${thumbSrc}" alt="Foto ${idx + 1}" loading="lazy" decoding="async" title="Kliknutím nastavíš ako Titulnú">
         ${idx === 0 ? '<span class="adm-photo-badge">Titulná</span>' : ""}
+        ${isSocial ? '<span class="adm-photo-badge social">📱 Soc. siete</span>' : ""}
         <div class="adm-photo-tools">
+          <button type="button" class="adm-photo-tool${isSocial ? " is-active" : ""}" data-action="social" title="${isSocial ? "Zrušiť výber pre sociálne siete" : "Použiť túto fotku na sociálne siete (IG / FB)"}">📱</button>
           <button type="button" class="adm-photo-tool" data-action="crop" title="4-bodový orez (vytvorí kópiu)">📐</button>
           <button type="button" class="adm-photo-tool" data-action="cover3d" title="3D Cover Studio (vytvorí kópiu)">✨</button>
           <button type="button" class="adm-photo-tool danger" data-action="remove" title="Odstrániť z albumu">✕</button>
@@ -796,6 +1083,20 @@
         const picked = albumPhotos.splice(idx, 1)[0];
         albumPhotos.unshift(picked);
         refreshCoverAndAlbumUI("✓ Zvolená nová titulná fotka (klikni na Uložiť)");
+      });
+
+      card.querySelector('[data-action="social"]').addEventListener("click", (e) => {
+        e.stopPropagation();
+        currentSocialImageUrl = (currentSocialImageUrl === url) ? "" : url;
+        refreshCoverAndAlbumUI(
+          currentSocialImageUrl
+            ? "📱 Vybraná fotka pre sociálne siete (klikni na Uložiť)"
+            : "Zrušený výber — pre sociálne siete sa použije titulná fotka (klikni na Uložiť)"
+        );
+        if (editingId) {
+          const curArt = artworks.find((a) => a.id === editingId);
+          if (curArt) renderArtworkPublishPanel(curArt);
+        }
       });
 
       card.querySelector('[data-action="crop"]').addEventListener("click", (e) => {
@@ -830,6 +1131,7 @@
     pendingThumbMap = {};
     pendingRawDataUrl = null;
     currentRawUrl = "";
+    currentSocialImageUrl = "";
 
     if (dom.formHeading) dom.formHeading.textContent = "➕ Pridať novú maľbu";
     if (dom.form) dom.form.reset();
@@ -837,6 +1139,9 @@
     if (dom.height) dom.height.value = "70";
     if (dom.depth) dom.depth.value = "4";
     if (dom.priceEur) dom.priceEur.value = "";
+    if (dom.priceAukro) dom.priceAukro.value = "";
+    if (dom.priceSashe) dom.priceSashe.value = "";
+    if (dom.priceEtsy) dom.priceEtsy.value = "";
     const pickSafeOption = (sel, preferred) => {
       if (!sel) return;
       if (Array.from(sel.options).some((o) => o.value === preferred)) {
@@ -852,6 +1157,7 @@
     if (dom.instaTestLink) dom.instaTestLink.href = "https://www.instagram.com/platenko.akryl";
     if (dom.statusMsg) dom.statusMsg.style.display = "none";
     if (dom.publishPanel) dom.publishPanel.style.display = "none";
+    if (dom.publishResultBox) dom.publishResultBox.style.display = "none";
 
     refreshCoverAndAlbumUI();
     updateSofaPreview();
@@ -866,6 +1172,7 @@
     pendingThumbMap = {};
     pendingRawDataUrl = null;
     currentRawUrl = art.rawImage || "";
+    currentSocialImageUrl = art.socialImageUrl || "";
     albumPhotos = (art.detailImages && art.detailImages.length > 0)
       ? [...art.detailImages]
       : (art.coverImage ? [art.coverImage] : []);
@@ -882,6 +1189,10 @@
     if (dom.priceEur) {
       dom.priceEur.value = (art.priceEur !== null && art.priceEur !== undefined && art.priceEur !== "") ? art.priceEur : "";
     }
+    const pp = art.portalPrices || {};
+    if (dom.priceAukro) dom.priceAukro.value = (pp.aukro !== undefined && pp.aukro !== null && pp.aukro !== "") ? pp.aukro : "";
+    if (dom.priceSashe) dom.priceSashe.value = (pp.sashe !== undefined && pp.sashe !== null && pp.sashe !== "") ? pp.sashe : "";
+    if (dom.priceEtsy) dom.priceEtsy.value = (pp.etsy !== undefined && pp.etsy !== null && pp.etsy !== "") ? pp.etsy : "";
     dom.instagramUrl.value = art.instagramUrl || "";
     dom.description.value = art.description || "";
     if (dom.instaTestLink) {
@@ -1363,6 +1674,75 @@
       .replace(/^-+|-+$/g, "") || "malba";
   }
 
+  function buildEditPayloadFromForm() {
+    const title = dom.title.value.trim();
+    const w = Math.max(10, parseFloat(dom.width.value) || 50);
+    const h = Math.max(10, parseFloat(dom.height.value) || 70);
+    const d = Math.max(1, parseFloat(dom.depth.value) || 4);
+    const dateVal = dom.date.value || new Date().toISOString().slice(0, 10);
+    const yearVal = dateVal.slice(0, 4);
+    const dimensions = `${w} × ${h} cm`;
+
+    const filteredThumbs = {};
+    albumPhotos.forEach((p) => {
+      if (pendingThumbMap[p]) filteredThumbs[p] = pendingThumbMap[p];
+    });
+    if (pendingRawDataUrl && pendingThumbMap[pendingRawDataUrl]) {
+      filteredThumbs[pendingRawDataUrl] = pendingThumbMap[pendingRawDataUrl];
+    }
+
+    const { priceEur, portalPrices } = readPricesFromForm();
+    const payload = {
+      title,
+      date: dateVal,
+      year: yearVal,
+      technique: dom.technique.value,
+      status: dom.status.value,
+      medium: dom.medium.value.trim() || "Akryl na plátne",
+      dimensions,
+      widthCm: w,
+      heightCm: h,
+      depthCm: d,
+      priceEur,
+      portalPrices,
+      socialImageUrl: currentSocialImageUrl,
+      publishChannels: { ...editingPublishChannels },
+      instagramUrl: dom.instagramUrl.value.trim(),
+      description: dom.description.value.trim(),
+      detailImages: [...albumPhotos],
+      thumbMap: filteredThumbs,
+    };
+    if (currentRawUrl) payload.rawImage = currentRawUrl;
+    if (pendingRawDataUrl) payload.rawImageDataUrl = pendingRawDataUrl;
+    return payload;
+  }
+
+  async function persistCurrentEditingArtwork() {
+    if (!editingId) return;
+    const payload = buildEditPayloadFromForm();
+    if (!payload.title) {
+      throw new Error("Zadaj názov maľby.");
+    }
+    const resp = await fetch(`/api/artworks/${encodeURIComponent(editingId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (resp.status === 401) {
+      showAuthGate("Prihlásenie vypršalo. Prihlás sa znova.");
+      throw new Error("Prihlásenie vypršalo.");
+    }
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json().catch(() => ({}));
+    if (data.socialImageUrl !== undefined) currentSocialImageUrl = data.socialImageUrl;
+    if (Array.isArray(data.detailImages)) albumPhotos = [...data.detailImages];
+    if (data.rawImage) currentRawUrl = data.rawImage;
+    pendingRawDataUrl = null;
+    await loadArtworks();
+    const keptArt = artworks.find((a) => a.id === editingId);
+    if (keptArt) loadArtworkIntoForm(keptArt, { scrollTop: false });
+  }
+
   async function saveArtworkForm(e) {
     e.preventDefault();
     const title = dom.title.value.trim();
@@ -1371,94 +1751,34 @@
       return;
     }
 
-    const w = Math.max(10, parseFloat(dom.width.value) || 50);
-    const h = Math.max(10, parseFloat(dom.height.value) || 70);
-    const d = Math.max(1, parseFloat(dom.depth.value) || 4);
-    const dateVal = dom.date.value || new Date().toISOString().slice(0, 10);
-    const yearVal = dateVal.slice(0, 4);
-    const dimensions = `${w} × ${h} cm`;
-
     const origBtnText = dom.saveBtn.textContent;
     dom.saveBtn.disabled = true;
     dom.saveBtn.textContent = "⏳ Ukladám do cloudu…";
 
     try {
-      const filteredThumbs = {};
-      albumPhotos.forEach((p) => {
-        if (pendingThumbMap[p]) filteredThumbs[p] = pendingThumbMap[p];
-      });
-      if (pendingRawDataUrl && pendingThumbMap[pendingRawDataUrl]) {
-        filteredThumbs[pendingRawDataUrl] = pendingThumbMap[pendingRawDataUrl];
-      }
-
-      const rawPriceStr = dom.priceEur ? dom.priceEur.value.trim() : "";
-      const parsedPrice = rawPriceStr === "" ? null : Number(rawPriceStr);
-      const priceEur = (parsedPrice !== null && Number.isFinite(parsedPrice) && parsedPrice >= 0) ? parsedPrice : null;
-
       let savedId = editingId;
       let successMsg = "✓ Zmeny uložené do D1 a R2!";
 
       if (editingId) {
-        const payload = {
-          title,
-          date: dateVal,
-          year: yearVal,
-          technique: dom.technique.value,
-          status: dom.status.value,
-          medium: dom.medium.value.trim() || "Akryl na plátne",
-          dimensions,
-          widthCm: w,
-          heightCm: h,
-          depthCm: d,
-          priceEur,
-          publishChannels: { ...editingPublishChannels },
-          instagramUrl: dom.instagramUrl.value.trim(),
-          description: dom.description.value.trim(),
-          detailImages: [...albumPhotos],
-          thumbMap: filteredThumbs,
-        };
-        if (currentRawUrl) payload.rawImage = currentRawUrl;
-        if (pendingRawDataUrl) payload.rawImageDataUrl = pendingRawDataUrl;
-
-        const resp = await fetch(`/api/artworks/${encodeURIComponent(editingId)}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (resp.status === 401) {
-          showAuthGate("Prihlásenie vypršalo. Prihlás sa znova.");
-          return;
-        }
-        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        await persistCurrentEditingArtwork();
+        showStatusMsg(successMsg);
+        return;
       } else {
         if (albumPhotos.length === 0) {
           showStatusMsg("Pre novú maľbu najprv odfotografuj alebo nahraj obrázok.", true);
           return;
         }
+        const editPayload = buildEditPayloadFromForm();
         const slug = slugify(title);
-        const folder = `${dateVal}_${slug}-${Date.now().toString(36).slice(-4)}`;
+        const folder = `${editPayload.date}_${slug}-${Date.now().toString(36).slice(-4)}`;
         const newId = `art-${folder}`;
         savedId = newId;
         successMsg = "✓ Nová maľba (výrez aj originál) uložená do galérie!";
         const payload = {
+          ...editPayload,
           id: newId,
           folder,
-          title,
-          date: dateVal,
-          year: yearVal,
-          technique: dom.technique.value,
-          status: dom.status.value,
-          medium: dom.medium.value.trim() || "Akryl na plátne",
-          dimensions,
-          widthCm: w,
-          heightCm: h,
-          depthCm: d,
-          priceEur,
           publishChannels: {},
-          instagramUrl: dom.instagramUrl.value.trim(),
-          description: dom.description.value.trim(),
-          detailImages: [...albumPhotos],
-          thumbMap: filteredThumbs,
           rawImageDataUrl: pendingRawDataUrl || "",
           includeRawInAlbum: true,
         };
@@ -1530,6 +1850,7 @@
           resetForm();
           loadLookups().then(() => loadArtworks());
           loadAutomationChannels();
+          loadAutomationIntegrations();
         } catch (err) {
           if (dom.authError) {
             dom.authError.textContent = err.message || "Chyba prihlásenia.";
@@ -1631,12 +1952,42 @@
       });
     }
 
-    if (dom.automationBtn) dom.automationBtn.addEventListener("click", openAutomationModal);
-    if (dom.openAutoFromPanelBtn) dom.openAutoFromPanelBtn.addEventListener("click", openAutomationModal);
+    if (dom.automationBtn) dom.automationBtn.addEventListener("click", () => openAutomationModal("channels"));
+    if (dom.openAutoFromPanelBtn) dom.openAutoFromPanelBtn.addEventListener("click", () => openAutomationModal("channels"));
     if (dom.automationCloseBtn) dom.automationCloseBtn.addEventListener("click", closeAutomationModal);
     if (dom.automationModal) {
       dom.automationModal.addEventListener("click", (e) => {
         if (e.target === dom.automationModal) closeAutomationModal();
+      });
+    }
+    (dom.autoTabBtns || []).forEach((btn) => {
+      btn.addEventListener("click", () => setAutoTab(btn.dataset.autoTab));
+    });
+    if (dom.publishNowBtn) {
+      dom.publishNowBtn.addEventListener("click", publishNowForArtwork);
+    }
+    if (dom.refreshTokensBtn) {
+      dom.refreshTokensBtn.addEventListener("click", async () => {
+        const btn = dom.refreshTokensBtn;
+        const orig = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "⏳ Obnovujem…";
+        try {
+          const resp = await fetch("/api/automation/integrations/refresh", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ force: false }),
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(data.error || ("HTTP " + resp.status));
+          await loadAutomationIntegrations();
+          showAutoMsg("✓ Kontrola a obnova končiacich tokenov dokončená.");
+        } catch (err) {
+          showAutoMsg("Chyba obnovy tokenov: " + err.message, true);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = orig;
+        }
       });
     }
 
@@ -1693,6 +2044,7 @@
         resetForm();
         await loadLookups();
         loadAutomationChannels();
+        loadAutomationIntegrations();
         loadArtworks();
       } else {
         showAuthGate();

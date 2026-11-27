@@ -17,3 +17,7 @@ bucket_name = "platenko-photos"
 [assets]
 directory = "./"
 run_worker_first = false
+
+# Weekly Cron Trigger for refreshing expiring Meta / Aukro integration tokens (Monday 03:00 UTC)
+[triggers]
+crons = ["0 3 * * 1"]
