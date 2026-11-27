@@ -136,6 +136,9 @@ export async function serveIndexWithDynamicOG(request, env, url) {
       .transform(assetResp);
 
     const headers = new Headers(rewritten.headers);
+    if (!ct.toLowerCase().includes('charset=')) {
+      headers.set('Content-Type', 'text/html; charset=utf-8');
+    }
     headers.set('Cache-Control', 'public, max-age=60');
     return new Response(rewritten.body, {
       status: rewritten.status,

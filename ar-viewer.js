@@ -888,7 +888,10 @@
   }
 
   // ---- Event Wiring ----
-  document.addEventListener("DOMContentLoaded", () => {
+  let bindingsDone = false;
+  function initBindings() {
+    if (bindingsDone) return;
+    bindingsDone = true;
     cacheDom();
     if (!el.arModal) return;
 
@@ -1042,7 +1045,13 @@
       createdBlobUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch {} });
       createdBlobUrls = [];
     });
-  });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initBindings);
+  } else {
+    initBindings();
+  }
 
   window.PlatenkoARViewer = { open, close, isOpen };
 })();

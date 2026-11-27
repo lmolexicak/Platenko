@@ -1434,7 +1434,10 @@
   }
 
   // ---- Static UI Bindings ----
-  document.addEventListener("DOMContentLoaded", () => {
+  let bindingsDone = false;
+  function initBindings() {
+    if (bindingsDone) return;
+    bindingsDone = true;
     cacheDom();
     if (!el.root) return;
 
@@ -1483,7 +1486,13 @@
         }
       });
     }
-  });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initBindings);
+  } else {
+    initBindings();
+  }
 
   window.Platenko3DGallery = { open, close, isOpen, focusArtworkById };
 })();

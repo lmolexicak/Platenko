@@ -17,7 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const searchInput = document.getElementById("gallerySearchInput");
   const filterResetBtn = document.getElementById("galleryFilterResetBtn");
   const resultHintEl = document.getElementById("galleryResultHint");
-  const ASSET_VER = "20261127d";
+  const ASSET_VER = "20261127e";
   const loadedScriptPromises = new Map();
 
   const PAGE_SIZE = 24;

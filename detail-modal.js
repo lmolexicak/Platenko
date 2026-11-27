@@ -631,7 +631,10 @@
   }
 
   // ---- Bind Events Once ----
-  document.addEventListener("DOMContentLoaded", () => {
+  let bindingsDone = false;
+  function initBindings() {
+    if (bindingsDone) return;
+    bindingsDone = true;
     cacheDom();
     if (!el.overlay) return;
 
@@ -884,7 +887,13 @@
       else if (activeTab === "detail" && e.key === "ArrowRight") nextImage();
       else if (activeTab === "detail" && e.key === "ArrowLeft") prevImage();
     });
-  });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initBindings);
+  } else {
+    initBindings();
+  }
 
   window.PlatenkoDetailModal = { open, close, isOpen };
 })();
