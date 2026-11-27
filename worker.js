@@ -13,7 +13,6 @@ import { serveIndexWithDynamicOG, handleSiteRequest } from './src/site.js';
 import { handleLookupsRequest } from './src/lookups.js';
 import { handleAutomationRequest, refreshExpiringIntegrations } from './src/automation.js';
 import { handleArtworksRequest } from './src/artworks.js';
-import { handleMigrateRequest } from './src/migrate.js';
 
 const etagMatches = (ifNoneMatch, etag) => {
   if (!ifNoneMatch || !etag) return false;
@@ -337,11 +336,6 @@ export default {
     if (pathname.startsWith('/api/artworks')) {
       const artRes = await handleArtworksRequest(request, env, pathname);
       if (artRes) return artRes;
-    }
-
-    if (pathname === '/api/admin/migrate-ascii') {
-      const migRes = await handleMigrateRequest(request, env, url, pathname);
-      if (migRes) return migRes;
     }
 
     // 5. Static Assets fallback
