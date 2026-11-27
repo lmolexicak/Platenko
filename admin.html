@@ -8,7 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261127c">
+  <link rel="stylesheet" href="styles.css?v=20261127d">
+  <link rel="stylesheet" href="admin.css?v=20261127d">
 </head>
 <body>
 
@@ -33,8 +34,10 @@
     <div class="admin-subnav-inner">
       <a href="/admin" class="admin-nav-item active" aria-current="page">🏛️ <span>Katalóg &amp; Editor</span></a>
       <a href="sorter.html" id="adminSorterLink" class="admin-nav-item">📋 <span>Organizér</span></a>
+      <button type="button" id="adminInquiriesBtn" class="admin-nav-item" title="Prijaté dopyty od návštevníkov galérie">✉️ <span>Dopyty</span> <span id="adminInquiriesBadge" class="adm-nav-badge" style="display: none;">0</span></button>
       <button type="button" id="adminAutomationBtn" class="admin-nav-item" title="Automatizácia publikovania na sociálne siete a portály">🚀 <span>Automatizácia</span></button>
       <button type="button" id="adminLookupsBtn" class="admin-nav-item" title="Spravovať číselníky (Techniky, Stavy, Médiá, Rozmery)">⚙️ <span>Číselníky</span></button>
+      <button type="button" id="adminSiteSettingsBtn" class="admin-nav-item" title="Upraviť texty webu, O autorovi, kontakt a hashtagy">🌐 <span>Web &amp; Texty</span></button>
       <button type="button" id="adminAccountBtn" class="admin-nav-item" title="Zmena hesla správcu a odhlásenie">🔐 <span>Účet &amp; Heslo</span></button>
       <a href="/whatsnew" class="admin-nav-item" title="Chronologický prehľad noviniek a návodov">🆕 <span>Čo je nové</span></a>
     </div>
@@ -71,217 +74,252 @@
   <main class="admin-cms-container" id="adminMain" style="display: none;">
     <div class="admin-cms-grid">
 
-      <!-- Left: Editor & Capture Form -->
+      <!-- Left: 3-Tab Artwork Editor & Sticky Save Bar -->
       <section class="admin-cms-card" id="artworkFormCard">
         <div class="admin-card-head">
           <h1 id="admFormHeading" style="font-size: 1.25rem; margin: 0;">➕ Pridať novú maľbu</h1>
           <button type="button" id="admResetFormBtn" class="btn-secondary" style="padding: 6px 12px; font-size: 0.82rem;">+ Nová maľba</button>
         </div>
 
-        <form id="admArtworkForm" style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="adm-editor-tabs" role="tablist" aria-label="Sekcie editora diela">
+          <button type="button" class="adm-editor-tab active" data-ed-tab="photo" role="tab" aria-selected="true">📷 Fotka &amp; Orez</button>
+          <button type="button" class="adm-editor-tab" data-ed-tab="details" role="tab" aria-selected="false">📝 Detaily &amp; Rozmery</button>
+          <button type="button" class="adm-editor-tab" data-ed-tab="publish" role="tab" aria-selected="false">🚀 Publikovať (Web + Siete)</button>
+        </div>
 
-          <!-- Capture & Upload Dropzone -->
-          <div class="adm-upload-zone" id="admDropzone">
-            <input type="file" id="cameraCaptureInput" accept="image/*" capture="environment" style="display: none;">
-            <input type="file" id="fileUploadInput" accept="image/*" style="display: none;">
+        <form id="admArtworkForm" novalidate style="display: flex; flex-direction: column; gap: 16px;">
 
-            <div class="adm-upload-actions">
-              <button type="button" id="admCameraBtn" class="btn-edit-save">📷 Odfotiť dielo kamerou</button>
-              <button type="button" id="admFileBtn" class="btn-secondary">📁 Nahrať zo súboru</button>
-            </div>
-            <p class="adm-upload-hint">Alebo sem pretiahni fotku — po nahratí sa otvorí 4-bodové vyrovnanie perspektívy.</p>
+          <!-- TAB 1: Fotka & Orez -->
+          <div class="adm-editor-panel active" data-ed-panel="photo">
+            <div class="adm-upload-zone" id="admDropzone">
+              <input type="file" id="cameraCaptureInput" accept="image/*" capture="environment" style="display: none;">
+              <input type="file" id="fileUploadInput" accept="image/*" style="display: none;">
 
-            <div class="adm-preview-row" id="admPreviewRow" style="display: none;">
-              <img id="admCoverPreview" src="" alt="Náhľad obalu" class="adm-cover-thumb">
-              <div style="display: flex; flex-direction: column; gap: 8px; flex: 1;">
-                <span id="admCoverSourceTag" style="font-size: 0.78rem; color: var(--text-muted);"></span>
-                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-                  <button type="button" id="admRewarpBtn" class="btn-secondary" style="padding: 7px 12px; font-size: 0.82rem;">
-                    📐 4-bodový orez (kópia)
-                  </button>
-                  <button type="button" id="admOpen3DCoverBtn" class="btn-secondary" style="padding: 7px 12px; font-size: 0.82rem; border-color: #6366f1; color: #6366f1;">
-                    ✨ 3D Cover efekt (kópia)
-                  </button>
+              <div class="adm-upload-actions">
+                <button type="button" id="admCameraBtn" class="btn-edit-save">📷 Odfotiť dielo kamerou</button>
+                <button type="button" id="admFileBtn" class="btn-secondary">📁 Nahrať zo súboru</button>
+              </div>
+              <p class="adm-upload-hint">Alebo sem pretiahni fotku — po nahratí sa otvorí 4-bodové vyrovnanie perspektívy.</p>
+
+              <div class="adm-preview-row" id="admPreviewRow" style="display: none;">
+                <img id="admCoverPreview" src="" alt="Náhľad obalu" class="adm-cover-thumb">
+                <div style="display: flex; flex-direction: column; gap: 8px; flex: 1;">
+                  <span id="admCoverSourceTag" style="font-size: 0.78rem; color: var(--text-muted);"></span>
+                  <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    <button type="button" id="admRewarpBtn" class="btn-secondary" style="padding: 7px 12px; font-size: 0.82rem;">
+                      📐 4-bodový orez (kópia)
+                    </button>
+                    <button type="button" id="admOpen3DCoverBtn" class="btn-secondary" style="padding: 7px 12px; font-size: 0.82rem; border-color: #6366f1; color: #6366f1;">
+                      ✨ 3D Cover efekt (kópia)
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <!-- Album Photos Manager (Non-destructive copies, cover picker, multi-photo upload) -->
-          <div class="adm-dims-box" id="admAlbumPhotosSection" style="display: none;">
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
-              <div>
-                <span class="edit-label" style="margin: 0;">📸 Fotografie v albume <span id="admPhotoCount" style="font-weight: normal; text-transform: none;"></span></span>
-                <span style="font-size: 0.75rem; color: var(--text-muted);">Ťahaj ⋮⋮ pre poradie (do sietí/portálov ide prvých 10) · Kliknutím na fotku ju zvolíš ako Titulnú (#1) · 📱 označí 1. fotku pre sociálne siete.</span>
+            <!-- Album Photos Manager -->
+            <div class="adm-dims-box" id="admAlbumPhotosSection" style="display: none;">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                <div>
+                  <span class="edit-label" style="margin: 0;">📸 Fotografie v albume <span id="admPhotoCount" style="font-weight: normal; text-transform: none;"></span></span>
+                  <span style="font-size: 0.75rem; color: var(--text-muted);">Ťahaj ⋮⋮ pre poradie (do sietí/portálov ide prvých 10) · Kliknutím na fotku ju zvolíš ako Titulnú (#1) · 📱 označí 1. fotku pre sociálne siete.</span>
+                </div>
+                <div>
+                  <input type="file" id="admAddPhotosInput" accept="image/*" multiple style="display: none;">
+                  <button type="button" id="admAddPhotosBtn" class="preset-chip" style="padding: 6px 12px; font-size: 0.78rem;">＋ Pridať ďalšie fotky</button>
+                </div>
               </div>
-              <div>
-                <input type="file" id="admAddPhotosInput" accept="image/*" multiple style="display: none;">
-                <button type="button" id="admAddPhotosBtn" class="preset-chip" style="padding: 6px 12px; font-size: 0.78rem;">＋ Pridať ďalšie fotky</button>
-              </div>
-            </div>
-            <div id="admPhotoGrid" class="adm-photo-grid"></div>
-          </div>
-
-          <!-- Dimensions + Quick Presets + Miniature Sofa Preview -->
-          <div class="adm-dims-box">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
-              <span class="edit-label" style="margin: 0;">Rozmery diela (cm)</span>
-              <div class="adm-presets" id="admPresets">
-                <button type="button" class="preset-chip" data-w="30" data-h="40">30×40</button>
-                <button type="button" class="preset-chip" data-w="50" data-h="50">50×50</button>
-                <button type="button" class="preset-chip" data-w="50" data-h="70">50×70</button>
-                <button type="button" class="preset-chip" data-w="60" data-h="80">60×80</button>
-                <button type="button" class="preset-chip" data-w="80" data-h="100">80×100</button>
-                <button type="button" class="preset-chip" data-w="100" data-h="120">100×120</button>
-              </div>
-            </div>
-
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px;">
-              <div>
-                <label class="edit-label" for="admWidth">Šírka (cm)</label>
-                <input type="number" id="admWidth" class="edit-input" min="10" max="400" step="1" value="50" required>
-              </div>
-              <div>
-                <label class="edit-label" for="admHeight">Výška (cm)</label>
-                <input type="number" id="admHeight" class="edit-input" min="10" max="400" step="1" value="70" required>
-              </div>
-              <div>
-                <label class="edit-label" for="admDepth">Hĺbka (cm)</label>
-                <input type="number" id="admDepth" class="edit-input" min="1" max="20" step="0.5" value="4" required>
-              </div>
-            </div>
-
-            <!-- Live Miniature Sofa Scale Preview (220 cm reference) -->
-            <div class="adm-sofa-preview" id="admSofaPreview">
-              <div class="adm-sofa-paint" id="admPreviewPaint">
-                <span id="admPreviewPaintDims">50×70</span>
-              </div>
-              <div class="adm-sofa-couch" id="admPreviewSofa">
-                <svg viewBox="0 0 220 75" preserveAspectRatio="none" style="width:100%;height:100%;display:block;" aria-hidden="true">
-                  <rect x="16" y="6" width="188" height="36" rx="5" fill="#DDDCD6" stroke="#C4C3BC" stroke-width="1.5"/>
-                  <rect x="2" y="22" width="16" height="44" rx="4" fill="#D2D1CA" stroke="#B8B7B0" stroke-width="1.5"/>
-                  <rect x="202" y="22" width="16" height="44" rx="4" fill="#D2D1CA" stroke="#B8B7B0" stroke-width="1.5"/>
-                  <rect x="16" y="38" width="188" height="18" rx="3" fill="#E6E5DF" stroke="#C4C3BC" stroke-width="1.5"/>
-                  <rect x="14" y="56" width="192" height="10" rx="2" fill="#CAC9C2"/>
-                  <rect x="22" y="66" width="6" height="9" fill="#3F3F46"/>
-                  <rect x="192" y="66" width="6" height="9" fill="#3F3F46"/>
-                </svg>
-              </div>
-              <span class="adm-sofa-caption" id="admPreviewLabel">Mierka 50 × 70 × 4 cm nad 220 cm pohovkou</span>
+              <div id="admPhotoGrid" class="adm-photo-grid"></div>
             </div>
           </div>
 
-          <!-- Metadata Fields -->
-          <div>
-            <label class="edit-label" for="admTitle">Názov maľby</label>
-            <input type="text" id="admTitle" class="edit-input" placeholder="Napr. Zlatý úsvit v oblakoch" required>
-          </div>
-
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">
+          <!-- TAB 2: Detaily & Rozmery -->
+          <div class="adm-editor-panel" data-ed-panel="details">
             <div>
-              <label class="edit-label" for="admDate">Dátum (YYYY-MM-DD)</label>
-              <input type="date" id="admDate" class="edit-input">
+              <label class="edit-label" for="admTitle">Názov maľby</label>
+              <input type="text" id="admTitle" class="edit-input" placeholder="Napr. Zlatý úsvit v oblakoch" required>
             </div>
+
+            <div class="adm-dims-box">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+                <span class="edit-label" style="margin: 0;">Rozmery diela (cm)</span>
+                <div class="adm-presets" id="admPresets">
+                  <button type="button" class="preset-chip" data-w="30" data-h="40">30×40</button>
+                  <button type="button" class="preset-chip" data-w="50" data-h="50">50×50</button>
+                  <button type="button" class="preset-chip" data-w="50" data-h="70">50×70</button>
+                  <button type="button" class="preset-chip" data-w="60" data-h="80">60×80</button>
+                  <button type="button" class="preset-chip" data-w="80" data-h="100">80×100</button>
+                  <button type="button" class="preset-chip" data-w="100" data-h="120">100×120</button>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px;">
+                <div>
+                  <label class="edit-label" for="admWidth">Šírka (cm)</label>
+                  <input type="number" id="admWidth" class="edit-input" min="10" max="400" step="1" value="50" required>
+                </div>
+                <div>
+                  <label class="edit-label" for="admHeight">Výška (cm)</label>
+                  <input type="number" id="admHeight" class="edit-input" min="10" max="400" step="1" value="70" required>
+                </div>
+                <div>
+                  <label class="edit-label" for="admDepth">Hĺbka (cm)</label>
+                  <input type="number" id="admDepth" class="edit-input" min="1" max="20" step="0.5" value="4" required>
+                </div>
+              </div>
+
+              <div class="adm-sofa-preview" id="admSofaPreview">
+                <div class="adm-sofa-paint" id="admPreviewPaint">
+                  <span id="admPreviewPaintDims">50×70</span>
+                </div>
+                <div class="adm-sofa-couch" id="admPreviewSofa">
+                  <svg viewBox="0 0 220 75" preserveAspectRatio="none" style="width:100%;height:100%;display:block;" aria-hidden="true">
+                    <rect x="16" y="6" width="188" height="36" rx="5" fill="#DDDCD6" stroke="#C4C3BC" stroke-width="1.5"/>
+                    <rect x="2" y="22" width="16" height="44" rx="4" fill="#D2D1CA" stroke="#B8B7B0" stroke-width="1.5"/>
+                    <rect x="202" y="22" width="16" height="44" rx="4" fill="#D2D1CA" stroke="#B8B7B0" stroke-width="1.5"/>
+                    <rect x="16" y="38" width="188" height="18" rx="3" fill="#E6E5DF" stroke="#C4C3BC" stroke-width="1.5"/>
+                    <rect x="14" y="56" width="192" height="10" rx="2" fill="#CAC9C2"/>
+                    <rect x="22" y="66" width="6" height="9" fill="#3F3F46"/>
+                    <rect x="192" y="66" width="6" height="9" fill="#3F3F46"/>
+                  </svg>
+                </div>
+                <span class="adm-sofa-caption" id="admPreviewLabel">Mierka 50 × 70 × 4 cm nad 220 cm pohovkou</span>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">
+              <div>
+                <label class="edit-label" for="admDate">Dátum (YYYY-MM-DD)</label>
+                <input type="date" id="admDate" class="edit-input">
+              </div>
+              <div>
+                <label class="edit-label" for="admTechnique">Technika</label>
+                <select id="admTechnique" class="edit-select">
+                  <option value="Pouring">Pouring</option>
+                  <option value="Airbrush">Airbrush</option>
+                  <option value="Mixed" selected>Mixed</option>
+                  <option value="Brush">Brush</option>
+                </select>
+              </div>
+              <div>
+                <label class="edit-label" for="admStatus">Stav</label>
+                <select id="admStatus" class="edit-select">
+                  <option value="Available">Dostupné</option>
+                  <option value="Reserved">Rezervované</option>
+                  <option value="Sold">Predané</option>
+                </select>
+              </div>
+            </div>
+
             <div>
-              <label class="edit-label" for="admTechnique">Technika</label>
-              <select id="admTechnique" class="edit-select">
-                <option value="Pouring">Pouring</option>
-                <option value="Airbrush">Airbrush</option>
-                <option value="Mixed" selected>Mixed</option>
-                <option value="Brush">Brush</option>
+              <label class="edit-label" for="admMedium">Médium</label>
+              <select id="admMedium" class="edit-select">
+                <option value="Akryl na plátne">Akryl na plátne</option>
+                <option value="Akryl a zlatá fólia na plátne">Akryl a zlatá fólia na plátne</option>
               </select>
             </div>
+
+            <div class="adm-dims-box">
+              <label class="edit-label" style="margin-bottom: 8px;">💶 Ceny (€) — základná &amp; pre každý portál zvlášť</label>
+              <div class="adm-prices-grid">
+                <div>
+                  <label class="edit-label" for="admPriceEur">Základná (€)</label>
+                  <input type="number" id="admPriceEur" class="edit-input" min="0" step="1" placeholder="napr. 180">
+                </div>
+                <div>
+                  <label class="edit-label" for="admPriceAukro">Aukro (€)</label>
+                  <input type="number" id="admPriceAukro" class="edit-input" min="0" step="1" placeholder="= základná">
+                </div>
+                <div>
+                  <label class="edit-label" for="admPriceSashe">Sashe.sk (€)</label>
+                  <input type="number" id="admPriceSashe" class="edit-input" min="0" step="1" placeholder="= základná">
+                </div>
+                <div>
+                  <label class="edit-label" for="admPriceEtsy">Etsy (€)</label>
+                  <input type="number" id="admPriceEtsy" class="edit-input" min="0" step="1" placeholder="= základná">
+                </div>
+              </div>
+            </div>
+
             <div>
-              <label class="edit-label" for="admStatus">Stav</label>
-              <select id="admStatus" class="edit-select">
-                <option value="Available">Dostupné</option>
-                <option value="Reserved">Rezervované</option>
-                <option value="Sold">Predané</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label class="edit-label" for="admMedium">Médium</label>
-            <select id="admMedium" class="edit-select">
-              <option value="Akryl na plátne">Akryl na plátne</option>
-              <option value="Akryl a zlatá fólia na plátne">Akryl a zlatá fólia na plátne</option>
-            </select>
-          </div>
-
-          <div class="adm-dims-box">
-            <label class="edit-label" style="margin-bottom: 8px;">💶 Ceny (€) — základná &amp; pre každý portál zvlášť</label>
-            <div class="adm-prices-grid">
-              <div>
-                <label class="edit-label" for="admPriceEur">Základná (€)</label>
-                <input type="number" id="admPriceEur" class="edit-input" min="0" step="1" placeholder="napr. 180">
-              </div>
-              <div>
-                <label class="edit-label" for="admPriceAukro">Aukro (€)</label>
-                <input type="number" id="admPriceAukro" class="edit-input" min="0" step="1" placeholder="= základná">
-              </div>
-              <div>
-                <label class="edit-label" for="admPriceSashe">Sashe.sk (€)</label>
-                <input type="number" id="admPriceSashe" class="edit-input" min="0" step="1" placeholder="= základná">
-              </div>
-              <div>
-                <label class="edit-label" for="admPriceEtsy">Etsy (€)</label>
-                <input type="number" id="admPriceEtsy" class="edit-input" min="0" step="1" placeholder="= základná">
+              <label class="edit-label" for="admInstagramUrl">Instagram príspevok URL</label>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="url" id="admInstagramUrl" class="edit-input" placeholder="https://www.instagram.com/p/...">
+                <a id="admInstaTestLink" href="https://www.instagram.com/platenko.akryl" target="_blank" rel="noopener noreferrer" class="btn-secondary" style="padding: 9px 12px; text-decoration: none;" title="Otestovať odkaz">↗</a>
               </div>
             </div>
-          </div>
 
-          <div>
-            <label class="edit-label" for="admInstagramUrl">Instagram príspevok URL</label>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <input type="url" id="admInstagramUrl" class="edit-input" placeholder="https://www.instagram.com/p/...">
-              <a id="admInstaTestLink" href="https://www.instagram.com/platenko.akryl" target="_blank" rel="noopener noreferrer" class="btn-secondary" style="padding: 9px 12px; text-decoration: none;" title="Otestovať odkaz">↗</a>
+            <div>
+              <label class="edit-label" for="admDescription">Kurátorský popis / príbeh diela</label>
+              <textarea id="admDescription" class="edit-input" rows="4" placeholder="Stručný popis farieb, techniky alebo inšpirácie..."></textarea>
             </div>
           </div>
 
-          <div>
-            <label class="edit-label" for="admDescription">Kurátorský popis / príbeh diela</label>
-            <textarea id="admDescription" class="edit-input" rows="4" placeholder="Stručný popis farieb, techniky alebo inšpirácie..."></textarea>
-          </div>
-
-          <!-- Per-Artwork Automation & 1-Click Publish Panel -->
-          <div id="admPublishPanel" class="adm-publish-panel" style="display: none;">
-            <div class="adm-publish-head">
-              <span class="edit-label" style="margin: 0;">🚀 Publikovanie &amp; Automatizácia diela</span>
-              <button type="button" id="admOpenAutoFromPanelBtn" class="btn-secondary" style="padding: 4px 10px; font-size: 0.76rem;">⚙️ Siete &amp; Kľúče</button>
-            </div>
-            <div id="admSocialThumbWrap" class="adm-social-thumb-wrap" style="display: none;">
-              <img id="admSocialThumbImg" src="" alt="Fotka pre sociálne siete">
-              <div style="font-size: 0.78rem; color: var(--text-muted); flex: 1; min-width: 0;">
-                <strong id="admSocialThumbTitle" style="color: var(--text-main); display: block;">Fotka pre sociálne siete</strong>
-                <span id="admSocialThumbDesc">Vybraná z albumu (tlačidlom 📱)</span>
+          <!-- TAB 3: Publikovať (Web + Siete) -->
+          <div class="adm-editor-panel" data-ed-panel="publish">
+            <div class="adm-dims-box" id="admWebReadinessBox">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                <span class="edit-label" style="margin: 0;">🌐 Pripravenosť pre Web &amp; Katalóg</span>
+                <a id="admViewPublicLink" href="index.html" target="_blank" rel="noopener noreferrer" class="preset-chip" style="text-decoration: none; display: none;">↗ Zobraziť na webe</a>
               </div>
+              <div id="admWebReadinessList" class="adm-readiness-list"></div>
             </div>
-            <div id="admPublishStatusList" class="adm-publish-list"></div>
-            <div class="adm-publish-actions">
-              <button type="button" id="admPublishNowBtn" class="btn-edit-save" style="width: 100%; justify-content: center;">
-                🚀 Publikovať teraz do vybraných sietí
-              </button>
+
+            <div id="admPublishNewHint" class="adm-dims-box" style="font-size: 0.84rem; color: var(--text-muted);">
+              Po uložení nového diela do cloudu sa tu sprístupní 1-klik publikovanie do sociálnych sietí a predajných portálov.
             </div>
-            <div id="admPublishResultBox" class="adm-publish-results" style="display: none;"></div>
+
+            <div id="admPublishPanel" class="adm-publish-panel" style="display: none;">
+              <div class="adm-publish-head">
+                <span class="edit-label" style="margin: 0;">🚀 Publikovanie &amp; Automatizácia diela</span>
+                <button type="button" id="admOpenAutoFromPanelBtn" class="btn-secondary" style="padding: 4px 10px; font-size: 0.76rem;">⚙️ Siete &amp; Kľúče</button>
+              </div>
+              <div id="admSocialThumbWrap" class="adm-social-thumb-wrap" style="display: none;">
+                <img id="admSocialThumbImg" src="" alt="Fotka pre sociálne siete">
+                <div style="font-size: 0.78rem; color: var(--text-muted); flex: 1; min-width: 0;">
+                  <strong id="admSocialThumbTitle" style="color: var(--text-main); display: block;">Fotka pre sociálne siete</strong>
+                  <span id="admSocialThumbDesc">Vybraná z albumu (tlačidlom 📱)</span>
+                </div>
+              </div>
+              <div id="admPublishStatusList" class="adm-publish-list"></div>
+              <div class="adm-publish-actions">
+                <button type="button" id="admPublishNowBtn" class="btn-edit-save" style="width: 100%; justify-content: center;">
+                  🚀 Publikovať teraz do vybraných sietí
+                </button>
+              </div>
+              <div id="admPublishResultBox" class="adm-publish-results" style="display: none;"></div>
+            </div>
           </div>
 
-          <div id="admStatusMsg" style="display: none;"></div>
-
-          <button type="submit" id="admSaveBtn" class="btn-primary" style="width: 100%;">
-            💾 Uložiť do cloudu
-          </button>
+          <!-- Sticky Save Footer (always reachable across all 3 tabs) -->
+          <div class="adm-sticky-save-bar">
+            <div id="admStatusMsg" style="display: none;"></div>
+            <div class="adm-dirty-row">
+              <span id="admDirtyBadge" class="adm-dirty-badge">● Neuložené zmeny</span>
+              <span id="admQuickNextWrap" style="font-size: 0.76rem; color: var(--text-muted);">Všetky 3 záložky ukladá jedno tlačidlo.</span>
+            </div>
+            <button type="submit" id="admSaveBtn" class="btn-primary" style="width: 100%;">
+              💾 Uložiť do cloudu
+            </button>
+          </div>
         </form>
       </section>
 
       <!-- Right: Inventory Table -->
       <section class="admin-cms-card" id="adminInventoryCard">
-        <div class="admin-card-head" style="flex-wrap: wrap;">
+        <div class="admin-card-head" style="flex-wrap: wrap; margin-bottom: 12px;">
           <div>
             <h2 style="font-size: 1.2rem; margin: 0;">🖼️ Katalóg diel (<span id="admTotalCount">0</span>)</h2>
             <span style="font-size: 0.78rem; color: var(--text-muted);">Ťahajte riadky (⋮⋮) alebo kliknite na číslo pozície</span>
           </div>
           <input type="text" id="admSearchInput" class="edit-input" style="max-width: 220px; padding: 7px 12px;" placeholder="Hľadať dielo...">
+        </div>
+
+        <div id="admCatalogFilters" class="adm-cat-filters">
+          <button type="button" class="adm-cat-chip active" data-cat-filter="all">Všetky</button>
+          <button type="button" class="adm-cat-chip" data-cat-filter="no-price">Bez ceny</button>
+          <button type="button" class="adm-cat-chip" data-cat-filter="unpublished">Nepublikované</button>
+          <button type="button" class="adm-cat-chip" data-cat-filter="no-desc">Bez popisu</button>
         </div>
 
         <div class="adm-inventory-scroll">
@@ -572,8 +610,104 @@
     </div>
   </div>
 
-  <script src="perspective-warp.js?v=20261127c"></script>
-  <script src="cover-studio.js?v=20261127c"></script>
-  <script src="admin.js?v=20261127c"></script>
+  <!-- Inquiries Manager Modal (Dopyty z galérie) -->
+  <div class="modal-overlay" id="inquiriesModal" role="dialog" aria-modal="true" aria-labelledby="inquiriesModalTitle" style="z-index: 342;">
+    <div class="edit-modal-box" style="max-width: 760px; max-height: 90vh; display: flex; flex-direction: column;">
+      <button class="modal-close-btn" id="inquiriesCloseBtn" aria-label="Zavrieť">✕</button>
+      <div style="margin-bottom: 12px; padding-right: 40px;">
+        <h2 id="inquiriesModalTitle" style="font-size: 1.3rem; margin: 0 0 4px;">✉️ Prijaté dopyty z galérie</h2>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0;">
+          Správy od návštevníkov odoslané cez formulár v detaile diela (uložené v databáze D1).
+        </p>
+      </div>
+      <div id="admInquiriesStatusMsg" style="display: none; margin-bottom: 10px;"></div>
+      <div id="admInquiriesList" class="adm-auto-scroll"></div>
+    </div>
+  </div>
+
+  <!-- Site Settings & Author Texts Modal (Web & Texty) -->
+  <div class="modal-overlay" id="siteSettingsModal" role="dialog" aria-modal="true" aria-labelledby="siteSettingsModalTitle" style="z-index: 344;">
+    <div class="edit-modal-box" style="max-width: 780px; max-height: 90vh; display: flex; flex-direction: column;">
+      <button class="modal-close-btn" id="siteSettingsCloseBtn" aria-label="Zavrieť">✕</button>
+      <div style="margin-bottom: 12px; padding-right: 40px;">
+        <h2 id="siteSettingsModalTitle" style="font-size: 1.3rem; margin: 0 0 4px;">🌐 Nastavenia webu &amp; Texty</h2>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0;">
+          Uprav názov galérie, úvodné texty, sekciu „O tvorbe / O autorovi“, kontakt aj predvolené hashtagy bez zásahu do kódu.
+        </p>
+      </div>
+      <div id="admSiteStatusMsg" style="display: none; margin-bottom: 10px;"></div>
+      <form id="admSiteSettingsForm" class="adm-auto-scroll" style="gap: 12px;">
+        <div class="adm-site-grid">
+          <div>
+            <label class="edit-label" for="siteSetBrandTitle">Názov značky (Logo text)</label>
+            <input type="text" id="siteSetBrandTitle" class="edit-input" placeholder="Plátenko">
+          </div>
+          <div>
+            <label class="edit-label" for="siteSetBrandSubtitle">Podtitul v hlavičke</label>
+            <input type="text" id="siteSetBrandSubtitle" class="edit-input" placeholder="Originálne maľby na plátne">
+          </div>
+        </div>
+        <div>
+          <label class="edit-label" for="siteSetHeroTitle">Hlavný nadpis galérie</label>
+          <input type="text" id="siteSetHeroTitle" class="edit-input" placeholder="Originálne maľby na plátne">
+        </div>
+        <div>
+          <label class="edit-label" for="siteSetHeroSubtitle">Krátky popis pod hlavným nadpisom</label>
+          <textarea id="siteSetHeroSubtitle" class="edit-input" rows="2"></textarea>
+        </div>
+        <div class="adm-site-grid">
+          <div>
+            <label class="edit-label" for="siteSetAboutHeading">Nadpis sekcie O autorovi / O tvorbe</label>
+            <input type="text" id="siteSetAboutHeading" class="edit-input" placeholder="O tvorbe">
+          </div>
+          <div>
+            <label class="edit-label" for="siteSetContactEmail">Kontaktný e-mail</label>
+            <input type="email" id="siteSetContactEmail" class="edit-input" placeholder="atelier@domena.sk">
+          </div>
+        </div>
+        <div>
+          <label class="edit-label" for="siteSetAboutText">Text O tvorbe / O autorovi</label>
+          <textarea id="siteSetAboutText" class="edit-input" rows="3"></textarea>
+        </div>
+        <div class="adm-site-grid">
+          <div>
+            <label class="edit-label" for="siteSetCustomOrder">Maľba na mieru</label>
+            <textarea id="siteSetCustomOrder" class="edit-input" rows="2"></textarea>
+          </div>
+          <div>
+            <label class="edit-label" for="siteSetShipping">Doručenie a balenie</label>
+            <textarea id="siteSetShipping" class="edit-input" rows="2"></textarea>
+          </div>
+        </div>
+        <div class="adm-site-grid">
+          <div>
+            <label class="edit-label" for="siteSetInstagramHandle">Instagram profil (@meno)</label>
+            <input type="text" id="siteSetInstagramHandle" class="edit-input" placeholder="@platenko.akryl">
+          </div>
+          <div>
+            <label class="edit-label" for="siteSetInstagramUrl">Instagram URL</label>
+            <input type="url" id="siteSetInstagramUrl" class="edit-input" placeholder="https://www.instagram.com/platenko.akryl">
+          </div>
+        </div>
+        <div>
+          <label class="edit-label" for="siteSetHashtags">Predvolené hashtagy pre sociálne siete</label>
+          <textarea id="siteSetHashtags" class="edit-input" rows="2"></textarea>
+        </div>
+        <div>
+          <label class="edit-label" for="siteSetFooterText">Text pätičky (Footer)</label>
+          <input type="text" id="siteSetFooterText" class="edit-input">
+        </div>
+        <div style="padding-top: 6px;">
+          <button type="submit" id="admSiteSaveBtn" class="btn-edit-save" style="width: 100%; justify-content: center;">
+            💾 Uložiť nastavenia webu
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="perspective-warp.js?v=20261127d"></script>
+  <script src="cover-studio.js?v=20261127d"></script>
+  <script src="admin.js?v=20261127d"></script>
 </body>
 </html>

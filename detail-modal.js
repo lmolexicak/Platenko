@@ -105,6 +105,7 @@
     el.inquiryName = document.getElementById("inquiryName");
     el.inquiryContact = document.getElementById("inquiryContact");
     el.inquiryMessage = document.getElementById("inquiryMessage");
+    el.inquiryFeedback = document.getElementById("inquiryFeedback");
     el.inquiryMailtoBtn = document.getElementById("modalInquireBtn");
     el.inquiryCopyBtn = document.getElementById("modalCopyInquiryBtn");
   }
@@ -599,8 +600,10 @@
     if (el.infoTechnique) el.infoTechnique.textContent = art.technique || "Mixed";
     if (el.infoYear) el.infoYear.textContent = art.date || art.year || "—";
 
-    const instaUrl = (art.instagramUrl && art.instagramUrl.trim()) || INSTAGRAM_FALLBACK;
+    const siteIg = (window.PlatenkoSiteSettings && window.PlatenkoSiteSettings.instagramUrl) || INSTAGRAM_FALLBACK;
+    const instaUrl = (art.instagramUrl && art.instagramUrl.trim()) || siteIg;
     if (el.infoInstaLink) el.infoInstaLink.href = instaUrl;
+    if (el.inquiryFeedback) el.inquiryFeedback.style.display = "none";
 
     if (el.inquiryMessage) {
       el.inquiryMessage.value = `Dobrý deň,\n\nmám záujem o dielo "${art.title}" (${dims.w} × ${dims.h} cm, ID: ${art.id}).\nProsím o informácie ohľadom dostupnosti a ceny.`;
@@ -793,13 +796,68 @@
       if (el.detailStage) resizeObserver.observe(el.detailStage);
     }
 
-    // Tab 3 actions
+    // Tab 3 direct D1 inquiry submission
     if (el.inquiryMailtoBtn) {
-      el.inquiryMailtoBtn.addEventListener("click", () => {
+      el.inquiryMailtoBtn.addEventListener("click", async () => {
         if (!currentArt) return;
-        const dims = parseDimensionsCm(currentArt);
-        const subject = `Záujem o maľbu: ${currentArt.title} (${dims.w} × ${dims.h} cm)`;
-        window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(buildInquiryBody())}`;
+        const senderName = el.inquiryName ? el.inquiryName.value.trim() : "";
+        const senderContact = el.inquiryContact ? el.inquiryContact.value.trim() : "";
+        const message = el.inquiryMessage ? el.inquiryMessage.value.trim() : "";
+
+        const showInquiryFeedback = (text, isErr) => {
+          if (!el.inquiryFeedback) return;
+          el.inquiryFeedback.textContent = text;
+          el.inquiryFeedback.className = `inquiry-feedback ${isErr ? "error" : "success"}`;
+          el.inquiryFeedback.style.display = "block";
+        };
+
+        if (!senderName) {
+          showInquiryFeedback("Zadaj prosím svoje meno.", true);
+          if (el.inquiryName) el.inquiryName.focus();
+          return;
+        }
+        if (!senderContact) {
+          showInquiryFeedback("Zadaj prosím svoj e-mail alebo telefón.", true);
+          if (el.inquiryContact) el.inquiryContact.focus();
+          return;
+        }
+        if (message.length < 5) {
+          showInquiryFeedback("Správa musí mať aspoň 5 znakov.", true);
+          if (el.inquiryMessage) el.inquiryMessage.focus();
+          return;
+        }
+
+        const btn = el.inquiryMailtoBtn;
+        const origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "⏳ Odosielam…";
+        if (el.inquiryFeedback) el.inquiryFeedback.style.display = "none";
+
+        try {
+          const resp = await fetch("/api/inquiry", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              artworkId: currentArt.id,
+              artworkTitle: currentArt.title || "",
+              senderName,
+              senderContact,
+              message,
+            }),
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.success) {
+            throw new Error(data.error || ("HTTP " + resp.status));
+          }
+          if (el.inquiryName) el.inquiryName.value = "";
+          if (el.inquiryContact) el.inquiryContact.value = "";
+          showInquiryFeedback("✓ Ďakujeme! Dopyt bol odoslaný a uložený — čoskoro sa vám ozveme.", false);
+        } catch (err) {
+          showInquiryFeedback("Nepodarilo sa odoslať dopyt: " + (err.message || "chyba siete"), true);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = origText;
+        }
       });
     }
     if (el.inquiryCopyBtn) {

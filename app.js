@@ -13,13 +13,23 @@ document.addEventListener("DOMContentLoaded", () => {
   // Admin gear shortcut (direct navigation to /admin)
   const settingsBtn = document.getElementById("settingsBtn");
 
+  // Filter & Search State (combinable Status + Size + Search query)
+  const searchInput = document.getElementById("gallerySearchInput");
+  const filterResetBtn = document.getElementById("galleryFilterResetBtn");
+  const resultHintEl = document.getElementById("galleryResultHint");
+  const ASSET_VER = "20261127d";
+  const loadedScriptPromises = new Map();
+
   const PAGE_SIZE = 24;
-  let activeFilter = "all";
+  let activeStatusFilter = "all";
+  let activeSizeFilter = "all";
+  let searchQuery = "";
   let currentFilteredList = [];
   let displayedCount = 0;
   let renderedEntries = [];
   let layoutRafId = null;
   let resizeTimerId = null;
+  let lastLayoutKey = "";
 
   let _isAuthenticated = false;
   let _authUsername = null;
@@ -29,6 +39,48 @@ document.addEventListener("DOMContentLoaded", () => {
     { code: "Reserved", label: "Rezervované", color: "yellow", showInFilter: true },
     { code: "Sold", label: "Predané", color: "gray", showInFilter: true },
   ];
+
+  function loadScriptOnce(src) {
+    if (loadedScriptPromises.has(src)) return loadedScriptPromises.get(src);
+    const p = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error(`Nepodarilo sa načítať modul ${src}`));
+      document.body.appendChild(s);
+    });
+    loadedScriptPromises.set(src, p);
+    return p;
+  }
+
+  function applySiteSettings(settings) {
+    if (!settings || typeof settings !== "object") return;
+    window.PlatenkoSiteSettings = settings;
+    const setText = (id, val) => {
+      if (val === undefined || val === null) return;
+      const el = document.getElementById(id);
+      if (el && String(val).trim() !== "") el.textContent = val;
+    };
+    setText("siteBrandTitle", settings.brandTitle);
+    setText("siteBrandSubtitle", settings.brandSubtitle);
+    setText("siteHeroTitle", settings.heroTitle);
+    setText("siteHeroSubtitle", settings.heroSubtitle);
+    setText("siteAboutHeading", settings.aboutHeading);
+    setText("siteAboutText", settings.aboutText);
+    setText("siteAboutCustomOrder", settings.aboutCustomOrder);
+    setText("siteAboutShipping", settings.aboutShipping);
+    setText("siteFooterText", settings.footerText);
+
+    const igLink = document.getElementById("siteAboutInstagram");
+    if (igLink) {
+      if (settings.instagramUrl) igLink.href = settings.instagramUrl;
+      if (settings.instagramHandle) igLink.textContent = `Sledovať na Instagrame ${settings.instagramHandle} ↗`;
+    }
+    if (settings.brandTitle && !new URLSearchParams(window.location.search).get("dielo")) {
+      document.title = `${settings.brandTitle} | ${settings.brandSubtitle || "Abstraktné akrylové maľby na plátne"}`;
+    }
+  }
 
   function toThumbUrl(url) {
     if (!url || typeof url !== "string") return url;
@@ -182,9 +234,11 @@ document.addEventListener("DOMContentLoaded", () => {
     _statusLookups
       .filter((s) => s.showInFilter !== false)
       .forEach((s) => {
+        const filterVal = `status:${String(s.code).toLowerCase()}`;
         const btn = document.createElement("button");
-        btn.className = "filter-btn";
-        btn.dataset.filter = `status:${String(s.code).toLowerCase()}`;
+        btn.className = `filter-btn${activeStatusFilter === filterVal ? " active" : ""}`;
+        btn.dataset.filter = filterVal;
+        btn.dataset.filterType = "status";
         btn.textContent = s.label;
         statusFilterGroup.appendChild(btn);
       });
@@ -199,10 +253,15 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>`;
     }
 
-    const [artRes, lookupRes] = await Promise.allSettled([
+    const [artRes, lookupRes, siteRes] = await Promise.allSettled([
       fetch("/api/artworks").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
       fetch("/api/lookups").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
+      fetch("/api/site-settings").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
     ]);
+
+    if (siteRes.status === "fulfilled" && siteRes.value) {
+      applySiteSettings(siteRes.value);
+    }
 
     if (lookupRes.status === "fulfilled" && lookupRes.value && Array.isArray(lookupRes.value.statuses)) {
       _statusLookups = lookupRes.value.statuses;
@@ -212,12 +271,15 @@ document.addEventListener("DOMContentLoaded", () => {
     if (artRes.status === "fulfilled" && Array.isArray(artRes.value) && artRes.value.length > 0) {
       _masterArtworksList = artRes.value;
     } else {
-      console.warn("API load failed, falling back to artworksData");
+      console.warn("API load failed, lazy-loading static artworks.js fallback");
+      try {
+        await loadScriptOnce(`artworks.js?v=${ASSET_VER}`);
+      } catch {}
       _masterArtworksList = (typeof artworksData !== "undefined" && Array.isArray(artworksData))
         ? artworksData : [];
     }
 
-    applyFilter("all");
+    applyFiltersAndSearch();
     handleInitialDeepLink();
   }
 
@@ -272,43 +334,77 @@ document.addEventListener("DOMContentLoaded", () => {
     return parsed.length > 0 ? Math.max(...parsed) : null;
   }
 
-  // 4. Render White Cube Catalog Grid
-  function applyFilter(filter) {
-    activeFilter = filter;
+  // 4. Render White Cube Catalog Grid (Combined Status + Size + Live Search)
+  function updateFilterButtonsUI() {
+    if (!filterBar) return;
+    const isAll = activeStatusFilter === "all" && activeSizeFilter === "all";
+    filterBar.querySelectorAll(".filter-btn").forEach((b) => {
+      const f = b.dataset.filter || "";
+      const fType = b.dataset.filterType || (f === "all" ? "all" : (f.startsWith("size-") ? "size" : "status"));
+      if (fType === "all") {
+        b.classList.toggle("active", isAll);
+      } else if (fType === "status") {
+        b.classList.toggle("active", activeStatusFilter === f);
+      } else if (fType === "size") {
+        b.classList.toggle("active", activeSizeFilter === f);
+      }
+    });
+
+    const hasFilters = !isAll || searchQuery.trim().length > 0;
+    if (filterResetBtn) {
+      filterResetBtn.style.display = hasFilters ? "inline-flex" : "none";
+    }
+    if (resultHintEl) {
+      if (hasFilters && _masterArtworksList) {
+        resultHintEl.style.display = "inline";
+        resultHintEl.textContent = `Zobrazených ${currentFilteredList.length} z ${_masterArtworksList.length} diel`;
+      } else {
+        resultHintEl.style.display = "none";
+      }
+    }
+  }
+
+  function applyFiltersAndSearch() {
     const all = getArtworksList();
+    const q = searchQuery.trim().toLowerCase();
 
     currentFilteredList = all.filter((item) => {
-      if (filter === "all") return true;
-      const st = normalizeStatus(item.status).key;
-      if (filter.startsWith("status:")) {
-        return st === filter.substring("status:".length);
+      if (activeStatusFilter !== "all") {
+        const st = normalizeStatus(item.status).key;
+        const wanted = activeStatusFilter.startsWith("status:")
+          ? activeStatusFilter.substring("status:".length)
+          : activeStatusFilter;
+        if (st !== wanted) return false;
       }
-      if (filter === "available" || filter === "reserved" || filter === "sold") {
-        return st === filter;
-      }
-      if (filter === "size-small" || filter === "size-medium" || filter === "size-large") {
+
+      if (activeSizeFilter !== "all") {
         const maxDim = getMaxDimensionCm(item.dimensions || "50 × 70 cm");
         if (!maxDim) return false;
-        if (filter === "size-small") return maxDim < 60;
-        if (filter === "size-medium") return maxDim >= 60 && maxDim <= 100;
-        if (filter === "size-large") return maxDim > 100;
+        if (activeSizeFilter === "size-small" && !(maxDim < 60)) return false;
+        if (activeSizeFilter === "size-medium" && !(maxDim >= 60 && maxDim <= 100)) return false;
+        if (activeSizeFilter === "size-large" && !(maxDim > 100)) return false;
       }
-      if (filter === "2024" || filter === "2023" || filter === "2022") return item.year === filter;
-      if (filter === "multi") return (item.photoCount || (item.detailImages && item.detailImages.length) || 1) >= 3;
-      return (item.technique || "").toLowerCase() === filter.toLowerCase();
+
+      if (q) {
+        const hay = `${item.title || ""} ${item.technique || ""} ${item.medium || ""} ${item.dimensions || ""} ${item.year || ""} ${item.description || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
     });
 
     galleryGrid.innerHTML = "";
     displayedCount = 0;
     renderedEntries = [];
+    lastLayoutKey = "";
 
     const allBtn = document.querySelector('[data-filter="all"]');
     if (allBtn) allBtn.textContent = `Všetky maľby (${all.length})`;
+    updateFilterButtonsUI();
 
     if (currentFilteredList.length === 0) {
       galleryGrid.innerHTML = `
         <div style="text-align: center; padding: 60px 0; color: var(--text-muted);">
-          V tejto kategórii sa nenašli žiadne maľby.
+          Pre zvolené filtre sa nenašli žiadne maľby.
         </div>`;
       if (loadMoreWrap) loadMoreWrap.style.display = "none";
       return;
@@ -323,6 +419,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function getInitialAspectRatio(art) {
+    if (Number(art && art.coverAspectRatio) > 0) {
+      return clampRatio(Number(art.coverAspectRatio));
+    }
     let w = Number(art && art.widthCm);
     let h = Number(art && art.heightCm);
     if (!(w > 0 && h > 0) && art && typeof art.dimensions === "string") {
@@ -344,13 +443,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Mobile single-column stack: natural uncropped aspect per card
     if (window.innerWidth < 640 || containerW < 520) {
+      const mobileKey = `mob:${renderedEntries.length}`;
       galleryGrid.classList.add("is-mobile-stack");
+      if (lastLayoutKey === mobileKey && galleryGrid.children.length === renderedEntries.length) {
+        renderedEntries.forEach((entry) => {
+          entry.card.style.width = "";
+          entry.imgWrap.style.height = "";
+          entry.imgWrap.style.aspectRatio = String(entry.ratio);
+        });
+        return;
+      }
       galleryGrid.innerHTML = "";
       renderedEntries.forEach((entry) => {
         entry.card.style.width = "";
         entry.imgWrap.style.height = "";
+        entry.imgWrap.style.aspectRatio = String(entry.ratio);
         galleryGrid.appendChild(entry.card);
       });
+      lastLayoutKey = mobileKey;
       return;
     }
 
@@ -407,6 +517,34 @@ document.addEventListener("DOMContentLoaded", () => {
       i += chosenCount;
     }
 
+    const rowKey = rows.map((r) => r.items.map((it) => it.art.id).join(",")).join("|");
+    const canReuseRows = lastLayoutKey === rowKey && galleryGrid.children.length === rows.length;
+
+    if (canReuseRows) {
+      rows.forEach((row, rIdx) => {
+        const rowEl = galleryGrid.children[rIdx];
+        rowEl.style.gap = `${gap}px`;
+        const rowH = Math.round(row.height);
+        const totalGapW = gap * (row.items.length - 1);
+        const fullWidthRow = !row.isLastRow || (row.items.reduce((s, it) => s + rowH * it.ratio, 0) + totalGapW >= containerW - 4);
+        let usedW = 0;
+
+        row.items.forEach((entry, idx) => {
+          let cardW;
+          if (fullWidthRow && idx === row.items.length - 1) {
+            cardW = Math.max(80, containerW - totalGapW - usedW);
+          } else {
+            cardW = Math.max(80, Math.round(rowH * entry.ratio));
+            usedW += cardW;
+          }
+          entry.card.style.width = `${cardW}px`;
+          entry.imgWrap.style.aspectRatio = "";
+          entry.imgWrap.style.height = `${rowH}px`;
+        });
+      });
+      return;
+    }
+
     const frag = document.createDocumentFragment();
     rows.forEach((row) => {
       const rowEl = document.createElement("div");
@@ -427,6 +565,7 @@ document.addEventListener("DOMContentLoaded", () => {
           usedW += cardW;
         }
         entry.card.style.width = `${cardW}px`;
+        entry.imgWrap.style.aspectRatio = "";
         entry.imgWrap.style.height = `${rowH}px`;
         rowEl.appendChild(entry.card);
       });
@@ -436,6 +575,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     galleryGrid.innerHTML = "";
     galleryGrid.appendChild(frag);
+    lastLayoutKey = rowKey;
   }
 
   function scheduleJustifiedLayout() {
@@ -474,12 +614,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const imgWrap = card.querySelector(".card-image-wrap");
       const img = imgWrap.querySelector("img");
+      const initialRatio = getInitialAspectRatio(art);
+      imgWrap.style.aspectRatio = String(initialRatio);
       const entry = {
         art,
         card,
         imgWrap,
         img,
-        ratio: getInitialAspectRatio(art),
+        ratio: initialRatio,
       };
 
       const updateRatioFromImage = () => {
@@ -527,13 +669,38 @@ document.addEventListener("DOMContentLoaded", () => {
     filterBar.addEventListener("click", (e) => {
       const btn = e.target.closest(".filter-btn");
       if (!btn) return;
-      filterBar.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      applyFilter(btn.dataset.filter);
+      const f = btn.dataset.filter || "all";
+      const fType = btn.dataset.filterType || (f === "all" ? "all" : (f.startsWith("size-") ? "size" : "status"));
+      if (fType === "all") {
+        activeStatusFilter = "all";
+        activeSizeFilter = "all";
+      } else if (fType === "status") {
+        activeStatusFilter = (activeStatusFilter === f) ? "all" : f;
+      } else if (fType === "size") {
+        activeSizeFilter = (activeSizeFilter === f) ? "all" : f;
+      }
+      applyFiltersAndSearch();
     });
   }
 
-  // 5. Detail Modal, AR & 3D Gallery Delegation
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      searchQuery = searchInput.value || "";
+      applyFiltersAndSearch();
+    });
+  }
+
+  if (filterResetBtn) {
+    filterResetBtn.addEventListener("click", () => {
+      activeStatusFilter = "all";
+      activeSizeFilter = "all";
+      searchQuery = "";
+      if (searchInput) searchInput.value = "";
+      applyFiltersAndSearch();
+    });
+  }
+
+  // 5. Detail Modal, Lazy-Loaded AR & 3D Gallery Delegation
   function openArtworkModal(art) {
     if (!window.PlatenkoDetailModal || !art) return;
     window.PlatenkoDetailModal.open(art, {
@@ -557,8 +724,18 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function openARViewer(art) {
-    if (!art || !window.PlatenkoARViewer) return;
+  async function openARViewer(art) {
+    if (!art) return;
+    if (!window.PlatenkoARViewer) {
+      showToast("Pripravujem AR náhľad…");
+      try {
+        await loadScriptOnce(`ar-viewer.js?v=${ASSET_VER}`);
+      } catch (err) {
+        showToast(err.message || "AR modul sa nepodarilo načítať.");
+        return;
+      }
+    }
+    if (!window.PlatenkoARViewer) return;
     window.PlatenkoARViewer.open(art, getArtworksList(), {
       onOpen: (openedArt) => {
         syncUrlParams({ dielo: openedArt.id, ar: "1" });
@@ -578,7 +755,16 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function open3DGallery(initialArtworkId) {
+  async function open3DGallery(initialArtworkId) {
+    if (!window.Platenko3DGallery) {
+      showToast("Načítavam 3D galériu…");
+      try {
+        await loadScriptOnce(`gallery-3d.js?v=${ASSET_VER}`);
+      } catch (err) {
+        showToast(err.message || "3D modul sa nepodarilo načítať.");
+        return;
+      }
+    }
     if (!window.Platenko3DGallery) return;
     setActiveNavTab("3d");
     syncUrlParams({ view: "3d", dielo: initialArtworkId || null });

@@ -56,6 +56,11 @@
   let photoDragState = null;
   let suppressNextPhotoClick = false;
   let currentUsername = "mario";
+  let activeEditorTab = "photo";
+  let activeCatalogFilter = "all";
+  let isFormDirty = false;
+  let inquiriesList = [];
+  let currentSiteSettings = {};
 
   const dom = {};
   function cacheDom() {
@@ -69,10 +74,37 @@
     dom.main = document.getElementById("adminMain");
     dom.adminSubnav = document.getElementById("adminSubnav");
     dom.logoutBtn = document.getElementById("adminLogoutBtn");
+    dom.inquiriesBtn = document.getElementById("adminInquiriesBtn");
+    dom.inquiriesBadge = document.getElementById("adminInquiriesBadge");
     dom.automationBtn = document.getElementById("adminAutomationBtn");
     dom.lookupsBtn = document.getElementById("adminLookupsBtn");
+    dom.siteSettingsBtn = document.getElementById("adminSiteSettingsBtn");
     dom.accountBtn = document.getElementById("adminAccountBtn");
     dom.sorterLink = document.getElementById("adminSorterLink");
+
+    dom.inquiriesModal = document.getElementById("inquiriesModal");
+    dom.inquiriesCloseBtn = document.getElementById("inquiriesCloseBtn");
+    dom.inquiriesStatusMsg = document.getElementById("admInquiriesStatusMsg");
+    dom.inquiriesList = document.getElementById("admInquiriesList");
+
+    dom.siteSettingsModal = document.getElementById("siteSettingsModal");
+    dom.siteSettingsCloseBtn = document.getElementById("siteSettingsCloseBtn");
+    dom.siteStatusMsg = document.getElementById("admSiteStatusMsg");
+    dom.siteSettingsForm = document.getElementById("admSiteSettingsForm");
+    dom.siteSaveBtn = document.getElementById("admSiteSaveBtn");
+    dom.siteBrandTitle = document.getElementById("siteSetBrandTitle");
+    dom.siteBrandSubtitle = document.getElementById("siteSetBrandSubtitle");
+    dom.siteHeroTitle = document.getElementById("siteSetHeroTitle");
+    dom.siteHeroSubtitle = document.getElementById("siteSetHeroSubtitle");
+    dom.siteAboutHeading = document.getElementById("siteSetAboutHeading");
+    dom.siteContactEmail = document.getElementById("siteSetContactEmail");
+    dom.siteAboutText = document.getElementById("siteSetAboutText");
+    dom.siteCustomOrder = document.getElementById("siteSetCustomOrder");
+    dom.siteShipping = document.getElementById("siteSetShipping");
+    dom.siteIgHandle = document.getElementById("siteSetInstagramHandle");
+    dom.siteIgUrl = document.getElementById("siteSetInstagramUrl");
+    dom.siteHashtags = document.getElementById("siteSetHashtags");
+    dom.siteFooterText = document.getElementById("siteSetFooterText");
 
     dom.accountModal = document.getElementById("accountModal");
     dom.accountCloseBtn = document.getElementById("accountCloseBtn");
@@ -122,6 +154,8 @@
 
     dom.formHeading = document.getElementById("admFormHeading");
     dom.resetFormBtn = document.getElementById("admResetFormBtn");
+    dom.editorTabs = Array.from(document.querySelectorAll("#artworkFormCard .adm-editor-tab"));
+    dom.editorPanels = Array.from(document.querySelectorAll("#artworkFormCard .adm-editor-panel"));
     dom.form = document.getElementById("admArtworkForm");
     dom.dropzone = document.getElementById("admDropzone");
     dom.cameraBtn = document.getElementById("admCameraBtn");
@@ -163,6 +197,9 @@
     dom.instagramUrl = document.getElementById("admInstagramUrl");
     dom.instaTestLink = document.getElementById("admInstaTestLink");
     dom.description = document.getElementById("admDescription");
+    dom.webReadinessList = document.getElementById("admWebReadinessList");
+    dom.viewPublicLink = document.getElementById("admViewPublicLink");
+    dom.publishNewHint = document.getElementById("admPublishNewHint");
     dom.publishPanel = document.getElementById("admPublishPanel");
     dom.openAutoFromPanelBtn = document.getElementById("admOpenAutoFromPanelBtn");
     dom.socialThumbWrap = document.getElementById("admSocialThumbWrap");
@@ -172,11 +209,13 @@
     dom.publishStatusList = document.getElementById("admPublishStatusList");
     dom.publishNowBtn = document.getElementById("admPublishNowBtn");
     dom.publishResultBox = document.getElementById("admPublishResultBox");
+    dom.dirtyBadge = document.getElementById("admDirtyBadge");
     dom.statusMsg = document.getElementById("admStatusMsg");
     dom.saveBtn = document.getElementById("admSaveBtn");
 
     dom.totalCount = document.getElementById("admTotalCount");
     dom.searchInput = document.getElementById("admSearchInput");
+    dom.catalogFilterBtns = Array.from(document.querySelectorAll("#admCatalogFilters .adm-cat-chip"));
     dom.inventoryScroll = document.querySelector(".adm-inventory-scroll");
     dom.inventoryBody = document.getElementById("admInventoryBody");
     dom.themeBtn = document.getElementById("themeToggle");
@@ -275,6 +314,67 @@
     if (dom.accountUsername) dom.accountUsername.textContent = currentUsername || "mario";
   }
 
+  function setEditorTab(tabName) {
+    activeEditorTab = (tabName === "details" || tabName === "publish") ? tabName : "photo";
+    (dom.editorTabs || []).forEach((btn) => {
+      const active = btn.dataset.edTab === activeEditorTab;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    (dom.editorPanels || []).forEach((p) => {
+      p.classList.toggle("active", p.dataset.edPanel === activeEditorTab);
+    });
+    if (activeEditorTab === "details") updateSofaPreview();
+    if (activeEditorTab === "publish") renderWebReadiness();
+  }
+
+  function setFormDirty(dirty) {
+    isFormDirty = Boolean(dirty);
+    if (dom.dirtyBadge) dom.dirtyBadge.classList.toggle("visible", isFormDirty);
+    if (dom.saveBtn) dom.saveBtn.classList.toggle("is-dirty", isFormDirty);
+  }
+
+  function confirmDiscardIfDirty() {
+    if (!isFormDirty) return true;
+    return confirm("Máš neuložené zmeny v aktuálnom diele. Chceš ich zahodiť?");
+  }
+
+  function renderWebReadiness() {
+    if (!dom.webReadinessList) return;
+    const hasPhoto = albumPhotos.length > 0;
+    const hasTitle = Boolean(dom.title && dom.title.value.trim());
+    const hasDims = Boolean(Number(dom.width && dom.width.value) > 0 && Number(dom.height && dom.height.value) > 0);
+    const { priceEur, portalPrices } = readPricesFromForm();
+    const hasPrice = Boolean((priceEur && priceEur > 0) || Object.values(portalPrices).some((v) => v > 0));
+    const hasDesc = Boolean(dom.description && dom.description.value.trim());
+
+    const checks = [
+      { ok: hasPhoto, label: hasPhoto ? `Fotka (${albumPhotos.length}×)` : "Chýba fotka" },
+      { ok: hasTitle, label: hasTitle ? "Názov vyplnený" : "Chýba názov" },
+      { ok: hasDims, label: hasDims ? `${dom.width.value}×${dom.height.value} cm` : "Chýba rozmer" },
+      { ok: hasPrice, label: hasPrice ? "Cena zadaná" : "Bez ceny (€)" },
+      { ok: hasDesc, label: hasDesc ? "Popis vyplnený" : "Bez popisu" },
+    ];
+    dom.webReadinessList.innerHTML = checks.map((c) => `
+      <div class="adm-readiness-item${c.ok ? " ok" : ""}">
+        <span>${c.ok ? "✅" : "⚠️"}</span>
+        <span>${c.label}</span>
+      </div>
+    `).join("");
+
+    if (dom.viewPublicLink) {
+      if (editingId) {
+        dom.viewPublicLink.href = `/?dielo=${encodeURIComponent(editingId)}`;
+        dom.viewPublicLink.style.display = "inline-flex";
+      } else {
+        dom.viewPublicLink.style.display = "none";
+      }
+    }
+    if (dom.publishNewHint) {
+      dom.publishNewHint.style.display = editingId ? "none" : "block";
+    }
+  }
+
   function openAccountModal() {
     if (!dom.accountModal) return;
     if (dom.accountUsername) dom.accountUsername.textContent = currentUsername || "mario";
@@ -290,6 +390,196 @@
     document.body.style.overflow = "";
   }
 
+  // ---- Inquiries Manager Modal (Dopyty z galérie) ----
+  function showInquiriesMsg(text, isErr = false) {
+    if (!dom.inquiriesStatusMsg) return;
+    dom.inquiriesStatusMsg.textContent = text;
+    dom.inquiriesStatusMsg.className = isErr ? "settings-error" : "settings-success";
+    dom.inquiriesStatusMsg.style.display = "block";
+    if (!isErr) {
+      setTimeout(() => {
+        if (dom.inquiriesStatusMsg.textContent === text) dom.inquiriesStatusMsg.style.display = "none";
+      }, 3000);
+    }
+  }
+
+  function updateInquiriesBadge(unreadCount) {
+    if (!dom.inquiriesBadge) return;
+    if (unreadCount > 0) {
+      dom.inquiriesBadge.textContent = String(unreadCount);
+      dom.inquiriesBadge.style.display = "inline-flex";
+    } else {
+      dom.inquiriesBadge.style.display = "none";
+    }
+  }
+
+  async function loadInquiries() {
+    try {
+      const resp = await fetch("/api/inquiries");
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      inquiriesList = Array.isArray(data.inquiries) ? data.inquiries : [];
+      updateInquiriesBadge(Number(data.unreadCount) || 0);
+      if (dom.inquiriesModal && dom.inquiriesModal.classList.contains("open")) {
+        renderInquiriesList();
+      }
+    } catch (err) {
+      console.warn("Inquiries load failed:", err);
+    }
+  }
+
+  function renderInquiriesList() {
+    if (!dom.inquiriesList) return;
+    dom.inquiriesList.innerHTML = "";
+    if (inquiriesList.length === 0) {
+      dom.inquiriesList.innerHTML = `<p style="color:var(--text-muted);text-align:center;padding:24px;">Zatiaľ žiadne prijaté dopyty.</p>`;
+      return;
+    }
+
+    inquiriesList.forEach((inq) => {
+      const card = document.createElement("div");
+      card.className = `adm-inq-card${inq.status === "new" ? " is-new" : ""}`;
+      const dateStr = inq.createdAt ? new Date(inq.createdAt).toLocaleString("sk-SK") : "";
+      const isEmail = inq.senderContact && inq.senderContact.includes("@");
+
+      card.innerHTML = `
+        <div class="adm-inq-head">
+          <div>
+            <strong>${inq.senderName}</strong>
+            <span style="font-size:0.8rem;color:var(--text-muted);margin-left:6px;">${inq.senderContact}</span>
+            <div style="font-size:0.76rem;color:var(--text-muted);margin-top:2px;">
+              ${dateStr}${inq.artworkTitle ? ` · Dielo: <button type="button" class="preset-chip adm-inq-jump" style="padding:1px 7px;">${inq.artworkTitle}</button>` : ""}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <select class="status-select adm-inq-status">
+              <option value="new" ${inq.status === "new" ? "selected" : ""}>Nový</option>
+              <option value="replied" ${inq.status === "replied" ? "selected" : ""}>Vybavený</option>
+              <option value="archived" ${inq.status === "archived" ? "selected" : ""}>Archivovaný</option>
+            </select>
+            ${isEmail ? `<a class="adm-icon-btn" style="text-decoration:none;" href="mailto:${encodeURIComponent(inq.senderContact)}?subject=${encodeURIComponent("Re: Záujem o maľbu " + (inq.artworkTitle || "Plátenko"))}" title="Odpovedať e-mailom">✉️</a>` : ""}
+            <button type="button" class="adm-icon-btn adm-inq-del" style="color:#ef4444;" title="Vymazať">🗑️</button>
+          </div>
+        </div>
+        <div class="adm-inq-msg"></div>
+      `;
+      card.querySelector(".adm-inq-msg").textContent = inq.message || "";
+
+      const jumpBtn = card.querySelector(".adm-inq-jump");
+      if (jumpBtn && inq.artworkId) {
+        jumpBtn.addEventListener("click", () => {
+          const target = artworks.find((a) => a.id === inq.artworkId);
+          if (target && confirmDiscardIfDirty()) {
+            closeInquiriesModal();
+            loadArtworkIntoForm(target);
+          }
+        });
+      }
+
+      card.querySelector(".adm-inq-status").addEventListener("change", async (e) => {
+        try {
+          const resp = await fetch(`/api/inquiries/${inq.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: e.target.value }),
+          });
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+          await loadInquiries();
+          showInquiriesMsg("✓ Stav dopytu upravený.");
+        } catch (err) {
+          showInquiriesMsg("Chyba: " + err.message, true);
+        }
+      });
+
+      card.querySelector(".adm-inq-del").addEventListener("click", async () => {
+        if (!confirm(`Vymazať dopyt od „${inq.senderName}“?`)) return;
+        try {
+          const resp = await fetch(`/api/inquiries/${inq.id}`, { method: "DELETE" });
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+          await loadInquiries();
+          showInquiriesMsg("✓ Dopyt vymazaný.");
+        } catch (err) {
+          showInquiriesMsg("Chyba mazania: " + err.message, true);
+        }
+      });
+
+      dom.inquiriesList.appendChild(card);
+    });
+  }
+
+  function openInquiriesModal() {
+    if (!dom.inquiriesModal) return;
+    if (dom.inquiriesStatusMsg) dom.inquiriesStatusMsg.style.display = "none";
+    renderInquiriesList();
+    dom.inquiriesModal.classList.add("open");
+    document.body.style.overflow = "hidden";
+    loadInquiries();
+  }
+
+  function closeInquiriesModal() {
+    if (!dom.inquiriesModal) return;
+    dom.inquiriesModal.classList.remove("open");
+    document.body.style.overflow = "";
+  }
+
+  // ---- Site Settings & Texts Modal (Web & Texty) ----
+  function showSiteMsg(text, isErr = false) {
+    if (!dom.siteStatusMsg) return;
+    dom.siteStatusMsg.textContent = text;
+    dom.siteStatusMsg.className = isErr ? "settings-error" : "settings-success";
+    dom.siteStatusMsg.style.display = "block";
+    if (!isErr) {
+      setTimeout(() => {
+        if (dom.siteStatusMsg.textContent === text) dom.siteStatusMsg.style.display = "none";
+      }, 3500);
+    }
+  }
+
+  function populateSiteSettingsForm(s) {
+    if (!s) return;
+    if (dom.siteBrandTitle) dom.siteBrandTitle.value = s.brandTitle || "";
+    if (dom.siteBrandSubtitle) dom.siteBrandSubtitle.value = s.brandSubtitle || "";
+    if (dom.siteHeroTitle) dom.siteHeroTitle.value = s.heroTitle || "";
+    if (dom.siteHeroSubtitle) dom.siteHeroSubtitle.value = s.heroSubtitle || "";
+    if (dom.siteAboutHeading) dom.siteAboutHeading.value = s.aboutHeading || "";
+    if (dom.siteContactEmail) dom.siteContactEmail.value = s.contactEmail || "";
+    if (dom.siteAboutText) dom.siteAboutText.value = s.aboutText || "";
+    if (dom.siteCustomOrder) dom.siteCustomOrder.value = s.aboutCustomOrder || "";
+    if (dom.siteShipping) dom.siteShipping.value = s.aboutShipping || "";
+    if (dom.siteIgHandle) dom.siteIgHandle.value = s.instagramHandle || "";
+    if (dom.siteIgUrl) dom.siteIgUrl.value = s.instagramUrl || "";
+    if (dom.siteHashtags) dom.siteHashtags.value = s.defaultHashtags || "";
+    if (dom.siteFooterText) dom.siteFooterText.value = s.footerText || "";
+  }
+
+  async function loadSiteSettings() {
+    try {
+      const resp = await fetch("/api/site-settings");
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      currentSiteSettings = await resp.json();
+      if (dom.siteSettingsModal && dom.siteSettingsModal.classList.contains("open")) {
+        populateSiteSettingsForm(currentSiteSettings);
+      }
+    } catch (err) {
+      console.warn("Site settings load failed:", err);
+    }
+  }
+
+  function openSiteSettingsModal() {
+    if (!dom.siteSettingsModal) return;
+    if (dom.siteStatusMsg) dom.siteStatusMsg.style.display = "none";
+    populateSiteSettingsForm(currentSiteSettings);
+    dom.siteSettingsModal.classList.add("open");
+    document.body.style.overflow = "hidden";
+    loadSiteSettings();
+  }
+
+  function closeSiteSettingsModal() {
+    if (!dom.siteSettingsModal) return;
+    dom.siteSettingsModal.classList.remove("open");
+    document.body.style.overflow = "";
+  }
+
   function handleDeepLinkOpenParam() {
     const params = new URLSearchParams(window.location.search);
     const openParam = (params.get("open") || "").trim().toLowerCase();
@@ -297,6 +587,8 @@
     if (openParam === "automation") openAutomationModal("channels");
     else if (openParam === "lookups") openLookupsModal();
     else if (openParam === "account") openAccountModal();
+    else if (openParam === "inquiries") openInquiriesModal();
+    else if (openParam === "site") openSiteSettingsModal();
     params.delete("open");
     const qs = params.toString();
     const cleanUrl = window.location.pathname + (qs ? `?${qs}` : "");
@@ -1379,6 +1671,7 @@
       card.querySelector('[data-action="social"]').addEventListener("click", (e) => {
         e.stopPropagation();
         currentSocialImageUrl = (currentSocialImageUrl === url) ? "" : url;
+        setFormDirty(true);
         refreshCoverAndAlbumUI(
           currentSocialImageUrl
             ? "📱 Vybraná 1. fotka pre sociálne siete (klikni na Uložiť)"
@@ -1407,7 +1700,9 @@
           return;
         }
         albumPhotos.splice(idx, 1);
+        setFormDirty(true);
         refreshCoverAndAlbumUI("Fotka odstránená z albumu (potvrď tlačidlom Uložiť)");
+        renderWebReadiness();
       });
 
       dom.photoGrid.appendChild(card);
@@ -1423,6 +1718,7 @@
     pendingRawDataUrl = null;
     currentRawUrl = "";
     currentSocialImageUrl = "";
+    setFormDirty(false);
 
     if (dom.formHeading) dom.formHeading.textContent = "➕ Pridať novú maľbu";
     if (dom.form) dom.form.reset();
@@ -1445,14 +1741,17 @@
     pickSafeOption(dom.technique, "Mixed");
     pickSafeOption(dom.status, "Available");
     if (dom.date) dom.date.value = new Date().toISOString().slice(0, 10);
-    if (dom.instaTestLink) dom.instaTestLink.href = "https://www.instagram.com/platenko.akryl";
+    const defaultIg = (currentSiteSettings && currentSiteSettings.instagramUrl) || "https://www.instagram.com/platenko.akryl";
+    if (dom.instaTestLink) dom.instaTestLink.href = defaultIg;
     if (dom.statusMsg) dom.statusMsg.style.display = "none";
     if (dom.publishPanel) dom.publishPanel.style.display = "none";
     if (dom.publishResultBox) dom.publishResultBox.style.display = "none";
 
     refreshCoverAndAlbumUI();
     updateSofaPreview();
+    renderWebReadiness();
     renderInventory();
+    setEditorTab("photo");
   }
 
   function loadArtworkIntoForm(art, opts) {
@@ -1486,13 +1785,16 @@
     if (dom.priceEtsy) dom.priceEtsy.value = (pp.etsy !== undefined && pp.etsy !== null && pp.etsy !== "") ? pp.etsy : "";
     dom.instagramUrl.value = art.instagramUrl || "";
     dom.description.value = art.description || "";
+    const defaultIg = (currentSiteSettings && currentSiteSettings.instagramUrl) || "https://www.instagram.com/platenko.akryl";
     if (dom.instaTestLink) {
-      dom.instaTestLink.href = (art.instagramUrl && art.instagramUrl.trim()) || "https://www.instagram.com/platenko.akryl";
+      dom.instaTestLink.href = (art.instagramUrl && art.instagramUrl.trim()) || defaultIg;
     }
 
+    setFormDirty(false);
     refreshCoverAndAlbumUI();
     updateSofaPreview();
     renderArtworkPublishPanel(art);
+    renderWebReadiness();
     renderInventory();
     if (options.scrollTop !== false) {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1543,7 +1845,9 @@
           albumPhotos.unshift(hiresDataUrl);
         }
 
+        setFormDirty(true);
         refreshCoverAndAlbumUI("✨ Vytvorená orezaná kópia ako titulná — pôvodná fotka ostala v albume (klikni na Uložiť)");
+        renderWebReadiness();
       },
     });
   }
@@ -1560,11 +1864,13 @@
         } else {
           albumPhotos.push(hiresDataUrl);
         }
+        setFormDirty(true);
         refreshCoverAndAlbumUI(
           setAsCover
             ? "✨ Vytvorená 3D Cover kópia ako titulná — pôvodná fotka ostala v albume (klikni na Uložiť)"
             : "✨ Vytvorená 3D Cover kópia na koniec albumu (klikni na Uložiť)"
         );
+        renderWebReadiness();
       },
     });
   }
@@ -1585,11 +1891,48 @@
 
   let dragState = null;
 
+  function hasAnyPrice(art) {
+    if (art.priceEur !== null && art.priceEur !== undefined && Number(art.priceEur) > 0) return true;
+    const pp = art.portalPrices || {};
+    return Object.values(pp).some((v) => Number(v) > 0);
+  }
+
+  function hasAnyPublished(art) {
+    const ps = art.publishStatus || {};
+    return Object.values(ps).some((entry) => entry && (entry.status === "published" || entry.status === "drafted"));
+  }
+
   // ---- Inventory Table ----
   function renderInventory() {
     if (!dom.inventoryBody) return;
     const q = (dom.searchInput ? dom.searchInput.value : "").trim().toLowerCase();
+
+    if (dom.catalogFilterBtns && dom.catalogFilterBtns.length > 0) {
+      const counts = {
+        all: artworks.length,
+        "no-price": artworks.filter((a) => !hasAnyPrice(a)).length,
+        unpublished: artworks.filter((a) => !hasAnyPublished(a)).length,
+        "no-desc": artworks.filter((a) => !(a.description || "").trim()).length,
+      };
+      const labels = {
+        all: "Všetky",
+        "no-price": "Bez ceny",
+        unpublished: "Nepublikované",
+        "no-desc": "Bez popisu",
+      };
+      dom.catalogFilterBtns.forEach((btn) => {
+        const k = btn.dataset.catFilter;
+        btn.classList.toggle("active", k === activeCatalogFilter);
+        if (labels[k] !== undefined && counts[k] !== undefined) {
+          btn.textContent = `${labels[k]} (${counts[k]})`;
+        }
+      });
+    }
+
     const filtered = artworks.filter((a) => {
+      if (activeCatalogFilter === "no-price" && hasAnyPrice(a)) return false;
+      if (activeCatalogFilter === "unpublished" && hasAnyPublished(a)) return false;
+      if (activeCatalogFilter === "no-desc" && (a.description || "").trim()) return false;
       if (!q) return true;
       return (a.title || "").toLowerCase().includes(q)
         || (a.date || "").toLowerCase().includes(q)
@@ -1604,6 +1947,7 @@
       return;
     }
 
+    const isFiltered = Boolean(q) || activeCatalogFilter !== "all";
     filtered.forEach((art) => {
       const globalIdx = artworks.indexOf(art);
       const tr = document.createElement("tr");
@@ -1614,12 +1958,13 @@
       }
       const thumbSrc = toThumbUrl(art.coverImage);
       const dimsLabel = `${art.widthCm || 50} × ${art.heightCm || 70} × ${art.depthCm || 4} cm`;
-      const isSearching = Boolean(q);
+      const priced = hasAnyPrice(art);
+      const published = hasAnyPublished(art);
 
       tr.innerHTML = `
         <td class="adm-order-cell">
           <div class="adm-order-wrap">
-            <button type="button" class="adm-drag-handle" title="${isSearching ? "Zruš vyhľadávanie pre presun ťahaním" : "Chyť a potiahni pre zmenu poradia"}" aria-label="Presunúť dielo ťahaním" ${isSearching ? "disabled" : ""}>⋮⋮</button>
+            <button type="button" class="adm-drag-handle" title="${isFiltered ? "Prepni na Všetky bez hľadania pre presun ťahaním" : "Chyť a potiahni pre zmenu poradia"}" aria-label="Presunúť dielo ťahaním" ${isFiltered ? "disabled" : ""}>⋮⋮</button>
             <button type="button" class="adm-pos-btn" title="Klikni a zadaj cieľovú pozíciu (1–${artworks.length})" aria-label="Zmeniť pozíciu #${globalIdx + 1}">${globalIdx + 1}</button>
           </div>
         </td>
@@ -1627,7 +1972,13 @@
           <img src="${thumbSrc}" alt="${art.title}" class="adm-row-thumb" loading="lazy" decoding="async">
         </td>
         <td>
-          <strong style="display:block;font-size:0.92rem;">${art.title}</strong>
+          <strong style="display:block;font-size:0.92rem;">
+            ${art.title}
+            <span class="adm-micro-badges">
+              ${priced ? `<span class="adm-micro-badge ok" title="Zadaná cena">€</span>` : ""}
+              ${published ? `<span class="adm-micro-badge social" title="Publikované na sieti / portáli">🚀</span>` : ""}
+            </span>
+          </strong>
           <span style="font-size:0.78rem;color:var(--text-muted);">${dimsLabel} · ${art.date || art.year || ""} · ${art.photoCount || (art.detailImages ? art.detailImages.length : 1)} fotiek</span>
         </td>
         <td>
@@ -1648,7 +1999,7 @@
       });
 
       const dragHandle = tr.querySelector(".adm-drag-handle");
-      if (dragHandle && !isSearching) {
+      if (dragHandle && !isFiltered) {
         dragHandle.addEventListener("pointerdown", (e) => startRowDrag(e, tr, art, globalIdx));
       }
       const posBtn = tr.querySelector(".adm-pos-btn");
@@ -1656,7 +2007,10 @@
         posBtn.addEventListener("click", () => openInlinePositionEditor(tr, art, globalIdx));
       }
 
-      tr.querySelector(".adm-edit-btn").addEventListener("click", () => loadArtworkIntoForm(art));
+      tr.querySelector(".adm-edit-btn").addEventListener("click", () => {
+        if (!confirmDiscardIfDirty()) return;
+        loadArtworkIntoForm(art);
+      });
       tr.querySelector(".adm-del-btn").addEventListener("click", () => deleteArtwork(art));
 
       dom.inventoryBody.appendChild(tr);
@@ -1983,6 +2337,12 @@
     }
 
     const { priceEur, portalPrices } = readPricesFromForm();
+    let coverAspectRatio = null;
+    if (dom.coverPreview && dom.coverPreview.naturalWidth > 0 && dom.coverPreview.naturalHeight > 0) {
+      coverAspectRatio = Number((dom.coverPreview.naturalWidth / dom.coverPreview.naturalHeight).toFixed(4));
+    } else if (w > 0 && h > 0) {
+      coverAspectRatio = Number((w / h).toFixed(4));
+    }
     const payload = {
       title,
       date: dateVal,
@@ -1997,6 +2357,7 @@
       priceEur,
       portalPrices,
       socialImageUrl: currentSocialImageUrl,
+      coverAspectRatio,
       publishChannels: { ...editingPublishChannels },
       instagramUrl: dom.instagramUrl.value.trim(),
       description: dom.description.value.trim(),
@@ -2012,6 +2373,8 @@
     if (!editingId) return;
     const payload = buildEditPayloadFromForm();
     if (!payload.title) {
+      setEditorTab("details");
+      if (dom.title) dom.title.focus();
       throw new Error("Zadaj názov maľby.");
     }
     const resp = await fetch(`/api/artworks/${encodeURIComponent(editingId)}`, {
@@ -2029,6 +2392,7 @@
     if (Array.isArray(data.detailImages)) albumPhotos = [...data.detailImages];
     if (data.rawImage) currentRawUrl = data.rawImage;
     pendingRawDataUrl = null;
+    setFormDirty(false);
     await loadArtworks();
     const keptArt = artworks.find((a) => a.id === editingId);
     if (keptArt) loadArtworkIntoForm(keptArt, { scrollTop: false });
@@ -2038,6 +2402,8 @@
     e.preventDefault();
     const title = dom.title.value.trim();
     if (!title) {
+      setEditorTab("details");
+      if (dom.title) dom.title.focus();
       showStatusMsg("Zadaj názov maľby.", true);
       return;
     }
@@ -2056,6 +2422,7 @@
         return;
       } else {
         if (albumPhotos.length === 0) {
+          setEditorTab("photo");
           showStatusMsg("Pre novú maľbu najprv odfotografuj alebo nahraj obrázok.", true);
           return;
         }
@@ -2143,6 +2510,8 @@
           loadLookups().then(() => loadArtworks());
           loadAutomationChannels();
           loadAutomationIntegrations();
+          loadInquiries();
+          loadSiteSettings();
           handleDeepLinkOpenParam();
         } catch (err) {
           if (dom.authError) {
@@ -2223,9 +2592,38 @@
       });
     }
 
-    if (dom.resetFormBtn) dom.resetFormBtn.addEventListener("click", resetForm);
-    if (dom.form) dom.form.addEventListener("submit", saveArtworkForm);
+    if (dom.resetFormBtn) {
+      dom.resetFormBtn.addEventListener("click", () => {
+        if (!confirmDiscardIfDirty()) return;
+        resetForm();
+      });
+    }
+    if (dom.form) {
+      dom.form.addEventListener("submit", saveArtworkForm);
+      dom.form.addEventListener("input", () => {
+        setFormDirty(true);
+        if (activeEditorTab === "publish") renderWebReadiness();
+      });
+      dom.form.addEventListener("change", () => {
+        setFormDirty(true);
+        if (activeEditorTab === "publish") renderWebReadiness();
+      });
+    }
+    (dom.editorTabs || []).forEach((btn) => {
+      btn.addEventListener("click", () => setEditorTab(btn.dataset.edTab));
+    });
+    (dom.catalogFilterBtns || []).forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeCatalogFilter = btn.dataset.catFilter || "all";
+        renderInventory();
+      });
+    });
     if (dom.searchInput) dom.searchInput.addEventListener("input", renderInventory);
+    window.addEventListener("beforeunload", (e) => {
+      if (!isFormDirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    });
 
     [dom.width, dom.height, dom.depth].forEach((inp) => {
       if (inp) inp.addEventListener("input", updateSofaPreview);
@@ -2432,6 +2830,68 @@
       });
     }
 
+    if (dom.inquiriesBtn) dom.inquiriesBtn.addEventListener("click", openInquiriesModal);
+    if (dom.inquiriesCloseBtn) dom.inquiriesCloseBtn.addEventListener("click", closeInquiriesModal);
+    if (dom.inquiriesModal) {
+      dom.inquiriesModal.addEventListener("click", (e) => {
+        if (e.target === dom.inquiriesModal) closeInquiriesModal();
+      });
+    }
+
+    if (dom.siteSettingsBtn) dom.siteSettingsBtn.addEventListener("click", openSiteSettingsModal);
+    if (dom.siteSettingsCloseBtn) dom.siteSettingsCloseBtn.addEventListener("click", closeSiteSettingsModal);
+    if (dom.siteSettingsModal) {
+      dom.siteSettingsModal.addEventListener("click", (e) => {
+        if (e.target === dom.siteSettingsModal) closeSiteSettingsModal();
+      });
+    }
+    if (dom.siteSettingsForm) {
+      dom.siteSettingsForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const btn = dom.siteSaveBtn;
+        const orig = btn ? btn.textContent : "";
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "⏳ Ukladám…";
+        }
+        try {
+          const payload = {
+            brandTitle: dom.siteBrandTitle ? dom.siteBrandTitle.value.trim() : "",
+            brandSubtitle: dom.siteBrandSubtitle ? dom.siteBrandSubtitle.value.trim() : "",
+            heroTitle: dom.siteHeroTitle ? dom.siteHeroTitle.value.trim() : "",
+            heroSubtitle: dom.siteHeroSubtitle ? dom.siteHeroSubtitle.value.trim() : "",
+            aboutHeading: dom.siteAboutHeading ? dom.siteAboutHeading.value.trim() : "",
+            contactEmail: dom.siteContactEmail ? dom.siteContactEmail.value.trim() : "",
+            aboutText: dom.siteAboutText ? dom.siteAboutText.value.trim() : "",
+            aboutCustomOrder: dom.siteCustomOrder ? dom.siteCustomOrder.value.trim() : "",
+            aboutShipping: dom.siteShipping ? dom.siteShipping.value.trim() : "",
+            instagramHandle: dom.siteIgHandle ? dom.siteIgHandle.value.trim() : "",
+            instagramUrl: dom.siteIgUrl ? dom.siteIgUrl.value.trim() : "",
+            defaultHashtags: dom.siteHashtags ? dom.siteHashtags.value.trim() : "",
+            footerText: dom.siteFooterText ? dom.siteFooterText.value.trim() : "",
+          };
+          const resp = await fetch("/api/site-settings", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.success) {
+            throw new Error(data.error || ("HTTP " + resp.status));
+          }
+          currentSiteSettings = data.settings || payload;
+          showSiteMsg("✓ Nastavenia webu a texty boli uložené do cloudu D1.");
+        } catch (err) {
+          showSiteMsg("Chyba uloženia: " + err.message, true);
+        } finally {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = orig;
+          }
+        }
+      });
+    }
+
     try {
       const resp = await fetch("/api/auth/me");
       const data = await resp.json();
@@ -2443,6 +2903,8 @@
         loadAutomationChannels();
         loadAutomationIntegrations();
         loadArtworks();
+        loadInquiries();
+        loadSiteSettings();
         handleDeepLinkOpenParam();
       } else {
         showAuthGate();

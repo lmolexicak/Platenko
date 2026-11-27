@@ -1,5 +1,6 @@
 worker.js
 wrangler.toml
+src/
 README.md
 AGENTS.md
 PROJECT_SPEC.md

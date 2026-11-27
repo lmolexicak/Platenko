@@ -17,7 +17,7 @@
       }
     }
   </script>
-  <link rel="stylesheet" href="styles.css?v=20261127c">
+  <link rel="stylesheet" href="styles.css?v=20261127d">
 </head>
 <body>
 
@@ -34,8 +34,8 @@
           onerror="this.style.display='none';"
         >
         <div class="brand-text">
-          <span class="brand-title">Plátenko</span>
-          <span class="brand-subtitle">Originálne maľby na plátne</span>
+          <span class="brand-title" id="siteBrandTitle">Plátenko</span>
+          <span class="brand-subtitle" id="siteBrandSubtitle">Originálne maľby na plátne</span>
         </div>
       </a>
       <nav class="view-switcher" aria-label="Prepínanie zobrazenia">
@@ -56,21 +56,29 @@
   <main class="container">
     <!-- Hero / Intro -->
     <section class="hero">
-      <h1>Originálne maľby na plátne</h1>
-      <p>Tekutý akryl, holandský pour, jemné prechody airbrushom a detailné textúry od Plátenko.</p>
+      <h1 id="siteHeroTitle">Originálne maľby na plátne</h1>
+      <p id="siteHeroSubtitle">Tekutý akryl, holandský pour, jemné prechody airbrushom a detailné textúry od Plátenko.</p>
       
-      <!-- Filter Bar -->
-      <div class="filter-bar" id="filterBar">
-        <button class="filter-btn active" data-filter="all">Všetky maľby</button>
-        <span id="statusFilterGroup" style="display: contents;">
-          <button class="filter-btn" data-filter="status:available">Dostupné</button>
-          <button class="filter-btn" data-filter="status:reserved">Rezervované</button>
-          <button class="filter-btn" data-filter="status:sold">Predané</button>
-        </span>
-        <span class="filter-divider" aria-hidden="true"></span>
-        <button class="filter-btn" data-filter="size-small">Malé (do 60 cm)</button>
-        <button class="filter-btn" data-filter="size-medium">Stredné (60–100 cm)</button>
-        <button class="filter-btn" data-filter="size-large">Veľké (100+ cm)</button>
+      <!-- Combined Filter & Search Controls -->
+      <div class="gallery-filter-controls">
+        <div class="filter-bar" id="filterBar">
+          <button class="filter-btn active" data-filter="all" data-filter-type="all">Všetky maľby</button>
+          <span id="statusFilterGroup" style="display: contents;">
+            <button class="filter-btn" data-filter="status:available" data-filter-type="status">Dostupné</button>
+            <button class="filter-btn" data-filter="status:reserved" data-filter-type="status">Rezervované</button>
+            <button class="filter-btn" data-filter="status:sold" data-filter-type="status">Predané</button>
+          </span>
+          <span class="filter-divider" aria-hidden="true"></span>
+          <button class="filter-btn" data-filter="size-small" data-filter-type="size">Malé (do 60 cm)</button>
+          <button class="filter-btn" data-filter="size-medium" data-filter-type="size">Stredné (60–100 cm)</button>
+          <button class="filter-btn" data-filter="size-large" data-filter-type="size">Veľké (100+ cm)</button>
+        </div>
+
+        <div class="gallery-search-row">
+          <input type="search" id="gallerySearchInput" class="gallery-search-input" placeholder="🔍 Hľadať podľa názvu, techniky alebo rozmeru…" aria-label="Hľadať v galérii">
+          <button type="button" id="galleryFilterResetBtn" class="filter-btn filter-reset-btn" style="display: none;">✕ Zrušiť filtre</button>
+          <span id="galleryResultHint" class="gallery-result-hint" style="display: none;"></span>
+        </div>
       </div>
     </section>
 
@@ -88,17 +96,17 @@
     <section class="about-section">
       <div class="about-grid">
         <div class="about-intro">
-          <h2>O tvorbe</h2>
-          <p>
+          <h2 id="siteAboutHeading">O tvorbe</h2>
+          <p id="siteAboutText">
             Každé plátno je spojením organickej tekutosti a vedomého zásahu. Akrylové liatie necháva pigmenty prirodzene reagovať a vytvárať jedinečné bunky a štruktúry, zatiaľ čo airbrush a štetec dopĺňajú hĺbku, svetlo a kontrast.
           </p>
-          <a href="https://www.instagram.com/platenko.akryl" target="_blank" rel="noopener noreferrer" class="social-link">
+          <a id="siteAboutInstagram" href="https://www.instagram.com/platenko.akryl" target="_blank" rel="noopener noreferrer" class="social-link">
             Sledovať na Instagrame @platenko.akryl ↗
           </a>
         </div>
         <div class="about-stats" style="color: var(--text-muted); font-size: 0.95rem;">
-          <p style="margin-bottom: 12px;"><strong>Maľba na mieru:</strong> Máte predstavu o farebnej palete, rozmere alebo technike do svojho interiéru? Zákazková tvorba je možná po dohode.</p>
-          <p><strong>Doručenie a balenie:</strong> Každé dielo na napnutom plátne je ošetrené UV ochranným lakom a bezpečne zabalené pre doručenie.</p>
+          <p style="margin-bottom: 12px;"><strong>Maľba na mieru:</strong> <span id="siteAboutCustomOrder">Máte predstavu o farebnej palete, rozmere alebo technike do svojho interiéru? Zákazková tvorba je možná po dohode.</span></p>
+          <p><strong>Doručenie a balenie:</strong> <span id="siteAboutShipping">Každé dielo na napnutom plátne je ošetrené UV ochranným lakom a bezpečne zabalené pre doručenie.</span></p>
         </div>
       </div>
     </section>
@@ -316,9 +324,10 @@
                 <label class="edit-label" for="inquiryMessage">Správa</label>
                 <textarea id="inquiryMessage" class="edit-input" rows="4"></textarea>
               </div>
+              <div id="inquiryFeedback" class="inquiry-feedback" style="display: none;"></div>
               <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px;">
                 <button type="button" id="modalInquireBtn" class="btn-primary" style="flex: 1;">
-                  ✉️ Odoslať dopyt e-mailom
+                  ✉️ Odoslať dopyt
                 </button>
                 <button type="button" id="modalCopyInquiryBtn" class="btn-secondary">
                   📋 Skopírovať správu
@@ -512,14 +521,11 @@
 
   <!-- Footer -->
   <footer class="container">
-    <p>© 2026 Plátenko. Všetky práva vyhradené. Originálne diela @platenko.akryl</p>
+    <p id="siteFooterText">© 2026 Plátenko. Všetky práva vyhradené. Originálne diela @platenko.akryl</p>
   </footer>
 
-  <!-- Scripts -->
-  <script src="artworks.js?v=20261125h"></script>
-  <script src="detail-modal.js?v=20261125h"></script>
-  <script src="ar-viewer.js?v=20261125h"></script>
-  <script src="gallery-3d.js?v=20261125h"></script>
-  <script src="app.js?v=20261127c"></script>
+  <!-- Scripts (3D Gallery, WebAR & static fallback are lazy-loaded on demand in app.js) -->
+  <script src="detail-modal.js?v=20261127d"></script>
+  <script src="app.js?v=20261127d"></script>
 </body>
 </html>

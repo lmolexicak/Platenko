@@ -4,6 +4,30 @@ Kompletný chronologický prehľad všetkého, čo sme na projekte **Plátenko A
 
 ---
 
+## 2026-11-27 — Dynamické OG náhľady, priame dopyty, rýchlejší web & 3-krokový editor diela
+
+### Čo pribudlo
+- **Dynamické Open Graph náhľady (`/?dielo={id}`):** pri zdieľaní odkazu na konkrétny obraz cez Messenger, WhatsApp alebo sociálne siete Cloudflare Worker automaticky vloží fotku, názov a rozmery daného obrazu priamo do `<meta property="og:*">`.
+- **Priamy dopytový formulár v detaile diela (`✉️ Dopyty`):** záložka **Kontakt & Zdieľanie** už neotvára systémový e-mailový klient (`mailto:`), ale odošle správu priamo do databázy webu (s okamžitou spätnou väzbou v detaile). Všetky správy nájdeš v Admin CMS v novej položke **`✉️ Dopyty`** s počítadlom neprečítaných správ a možnosťou nastaviť webhook notifikáciu.
+- **Kombinovateľné filtre na hlavnej stránke:** filtre **Stav**, **Veľkosť** a **živé vyhľadávanie** teraz fungujú súčasne spolu.
+- **Rýchlejšie načítanie & stabilný layout (Zero-CLS):**
+  - CSS štýly administrácie sa oddelili do `admin.css`, takže verejná galéria sťahuje len potrebné štýly (`styles.css`).
+  - Moduly **3D galérie** (`gallery-3d.js`) a **WebAR** (`ar-viewer.js`) sa sťahujú až vo chvíli, keď ich návštevník naozaj otvorí.
+  - Pomer strán obálky sa ukladá priamo v D1 (`cover_aspect_ratio`), takže grid pri načítaní neskáče.
+- **3-krokový Admin editor diela + ochrana neuložených zmien:**
+  1. `1. Fotka & Orez` (obálka, album s presúvaním, 90° rotácie, 4-bodový orez a 3D Cover Studio)
+  2. `2. Detaily & Rozmery` (názov, rozmery nad pohovkou, technika, popis, tagy)
+  3. `3. Publikovať (Web + Siete)` (stav viditeľnosti na webe, ceny podľa portálu, semafor pripravenosti a 1-klik `🚀 Publikovať teraz`)
+  - Na spodku editora pribudla fixná lišta s indikátorom **`● Neuložené zmeny`**, ktorá upozorní pred prepnutím diela alebo zatvorením okna.
+- **Rýchle filtre v katalógu diel:** nad zoznamom diel vpravo sú prepínače **`Všetky`**, **`Bez ceny`**, **`Nepublikované`** a **`Bez popisu`** spolu s mikro-odznakmi `€` / `🚀` pri každom obraze.
+- **Správa textov webu (`🌐 Web & Texty`):** v Admin CMS môžeš priamo upraviť názov a popis galérie, podnadpis, sekciu **O autorovi / O tvorbe**, kontaktný e-mail a hashtagy pre sociálne siete.
+
+### Ako sa to používa
+1. V **Admin CMS** vyber dielo a preklikaj kroky **1 → 2 → 3**; spodná lišta **`💾 Uložiť do cloudu`** je dostupná vždy bez scrollovania.
+2. Klikni na **`🌐 Web & Texty`** v hornom menu pre úpravu verejných textov stránky alebo **`✉️ Dopyty`** pre správu správ od záujemcov.
+
+---
+
 ## 2026-11-27 — Nové Admin menu, `/whatsnew`, viacfotkový upload (10 fotiek), zamknutie kľúčov & poradie fotiek
 
 ### Čo pribudlo
