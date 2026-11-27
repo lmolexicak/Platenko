@@ -10,21 +10,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const loadMoreBtn = document.getElementById("loadMoreBtn");
   const loadMoreWrap = document.getElementById("loadMoreWrap");
 
-  // Settings & Auth Elements
+  // Admin gear shortcut (direct navigation to /admin)
   const settingsBtn = document.getElementById("settingsBtn");
-  const settingsModal = document.getElementById("settingsModal");
-  const settingsModalCloseBtn = document.getElementById("settingsModalCloseBtn");
-  const settingsLoginView = document.getElementById("settingsLoginView");
-  const settingsAdminView = document.getElementById("settingsAdminView");
-  const settingsUserLabel = document.getElementById("settingsUserLabel");
-  const loginForm = document.getElementById("loginForm");
-  const loginUsernameInput = document.getElementById("loginUsername");
-  const loginPasswordInput = document.getElementById("loginPassword");
-  const loginErrorEl = document.getElementById("loginError");
-  const loginSubmitBtn = document.getElementById("loginSubmitBtn");
-  const changePasswordForm = document.getElementById("changePasswordForm");
-  const changePassMsgEl = document.getElementById("changePassMsg");
-  const logoutBtn = document.getElementById("logoutBtn");
 
   const PAGE_SIZE = 24;
   let activeFilter = "all";
@@ -163,42 +150,11 @@ document.addEventListener("DOMContentLoaded", () => {
     themeToggleBtn.innerHTML = theme === "dark" ? `☀️ <span>Svetlý</span>` : `🌙 <span>Tmavý</span>`;
   }
 
-  // 2. Settings & Auth Handling
+  // 2. Admin Auth Session Check (toggles ⚙️ highlight & detail CMS shortcut)
   function updateSettingsUI() {
     if (settingsBtn) {
       settingsBtn.classList.toggle("logged-in", _isAuthenticated);
     }
-    if (settingsLoginView && settingsAdminView) {
-      settingsLoginView.style.display = _isAuthenticated ? "none" : "block";
-      settingsAdminView.style.display = _isAuthenticated ? "block" : "none";
-    }
-    if (settingsUserLabel && _authUsername) {
-      settingsUserLabel.textContent = _authUsername;
-    }
-  }
-
-  function openSettingsModal() {
-    if (!settingsModal) return;
-    updateSettingsUI();
-    if (loginErrorEl) loginErrorEl.style.display = "none";
-    if (changePassMsgEl) changePassMsgEl.style.display = "none";
-    settingsModal.classList.add("open");
-    document.body.style.overflow = "hidden";
-    if (!_isAuthenticated) {
-      setTimeout(() => {
-        if (loginUsernameInput && !loginUsernameInput.value) {
-          loginUsernameInput.focus();
-        } else if (loginPasswordInput) {
-          loginPasswordInput.focus();
-        }
-      }, 60);
-    }
-  }
-
-  function closeSettingsModal() {
-    if (!settingsModal) return;
-    settingsModal.classList.remove("open");
-    document.body.style.overflow = "";
   }
 
   async function checkAuthSession() {
@@ -213,106 +169,6 @@ document.addEventListener("DOMContentLoaded", () => {
       _authUsername = null;
     }
     updateSettingsUI();
-  }
-
-  if (settingsBtn) settingsBtn.addEventListener("click", openSettingsModal);
-  if (settingsModalCloseBtn) settingsModalCloseBtn.addEventListener("click", closeSettingsModal);
-  if (settingsModal) {
-    settingsModal.addEventListener("click", (e) => {
-      if (e.target === settingsModal) closeSettingsModal();
-    });
-  }
-
-  if (loginForm) {
-    loginForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      if (loginErrorEl) loginErrorEl.style.display = "none";
-      if (loginSubmitBtn) loginSubmitBtn.disabled = true;
-
-      try {
-        const resp = await fetch("/api/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            username: loginUsernameInput ? loginUsernameInput.value.trim() : "mario",
-            password: loginPasswordInput ? loginPasswordInput.value : "",
-          }),
-        });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok || !data.authenticated) {
-          throw new Error(data.error || "Nesprávne meno alebo heslo.");
-        }
-        _isAuthenticated = true;
-        _authUsername = data.username || "mario";
-        if (loginPasswordInput) loginPasswordInput.value = "";
-        updateSettingsUI();
-      } catch (err) {
-        if (loginErrorEl) {
-          loginErrorEl.textContent = err.message || "Chyba prihlásenia.";
-          loginErrorEl.style.display = "block";
-        }
-      } finally {
-        if (loginSubmitBtn) loginSubmitBtn.disabled = false;
-      }
-    });
-  }
-
-  if (changePasswordForm) {
-    changePasswordForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const curPass = document.getElementById("currentPassword").value;
-      const newPass = document.getElementById("newPassword").value;
-      const confPass = document.getElementById("confirmPassword").value;
-
-      const showMsg = (text, isErr) => {
-        if (!changePassMsgEl) return;
-        changePassMsgEl.textContent = text;
-        changePassMsgEl.className = isErr ? "settings-error" : "settings-success";
-        changePassMsgEl.style.display = "block";
-      };
-
-      if (newPass.length < 6) {
-        showMsg("Nové heslo musí mať aspoň 6 znakov.", true);
-        return;
-      }
-      if (newPass !== confPass) {
-        showMsg("Nové heslá sa nezhodujú.", true);
-        return;
-      }
-
-      try {
-        const resp = await fetch("/api/auth/change-password", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ currentPassword: curPass, newPassword: newPass }),
-        });
-        const data = await resp.json().catch(() => ({}));
-        if (resp.status === 401 && data.error === "Unauthorized") {
-          _isAuthenticated = false;
-          _authUsername = null;
-          updateSettingsUI();
-          showMsg("Prihlásenie vypršalo.", true);
-          return;
-        }
-        if (!resp.ok || !data.success) {
-          throw new Error(data.error || "Nepodarilo sa zmeniť heslo.");
-        }
-        changePasswordForm.reset();
-        showMsg("Heslo bolo úspešne zmenené.", false);
-      } catch (err) {
-        showMsg(err.message || "Chyba pri zmene hesla.", true);
-      }
-    });
-  }
-
-  if (logoutBtn) {
-    logoutBtn.addEventListener("click", async () => {
-      try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
-      _isAuthenticated = false;
-      _authUsername = null;
-      updateSettingsUI();
-      closeSettingsModal();
-    });
   }
 
   // 3. Data Access — loads from /api/artworks, falls back to artworksData

@@ -3889,3 +3889,263 @@ body.adm-is-dragging {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================================================
+   Unified Admin Navigation Bar (.admin-subnav) & /whatsnew Markdown Page
+   ========================================================================== */
+.admin-subnav-wrap {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  width: 100%;
+}
+
+.admin-subnav-inner {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 10px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-subtle);
+  color: var(--text-main);
+  font-size: 0.84rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.admin-nav-item:hover {
+  border-color: var(--border-focus);
+  background: var(--bg-surface);
+}
+
+.admin-nav-item.active {
+  background: var(--text-main);
+  color: var(--bg-primary);
+  border-color: var(--text-main);
+}
+
+@media (max-width: 640px) {
+  .admin-subnav-inner {
+    padding: 8px 12px;
+    gap: 6px;
+  }
+  .admin-nav-item {
+    padding: 6px 11px;
+    font-size: 0.78rem;
+  }
+}
+
+/* /whatsnew Markdown Changelog Subpage */
+.wn-container {
+  max-width: 960px;
+  margin: 26px auto 80px;
+  padding: 0 24px;
+}
+
+.wn-hero {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: var(--card-shadow);
+  margin-bottom: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.wn-eyebrow {
+  display: inline-block;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6366f1;
+  margin-bottom: 4px;
+}
+
+.wn-hero h1 {
+  font-size: 1.55rem;
+  margin: 0 0 6px;
+  line-height: 1.25;
+}
+
+.wn-hero p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+
+.wn-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wn-search {
+  max-width: 420px;
+}
+
+.wn-jump-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wn-jump-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 11px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.wn-jump-chip:hover {
+  color: var(--text-main);
+  border-color: var(--border-focus);
+}
+
+.wn-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.wn-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 22px 24px;
+  box-shadow: var(--card-shadow);
+  scroll-margin-top: 20px;
+}
+
+.wn-card.is-latest {
+  border-color: #6366f1;
+  box-shadow: 0 6px 24px rgba(99, 102, 241, 0.12);
+}
+
+.wn-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.wn-date-badge {
+  background: var(--text-main);
+  color: var(--bg-primary);
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wn-card.is-latest .wn-date-badge {
+  background: #6366f1;
+  color: #ffffff;
+}
+
+.wn-card-head h2 {
+  font-size: 1.18rem;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.wn-md-body {
+  font-size: 0.92rem;
+  line-height: 1.62;
+  color: var(--text-main);
+}
+
+.wn-md-body h3 {
+  font-size: 0.92rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 14px 0 8px;
+}
+
+.wn-md-body h3:first-child {
+  margin-top: 0;
+}
+
+.wn-md-body ul,
+.wn-md-body ol {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+
+.wn-md-body li {
+  margin-bottom: 5px;
+}
+
+.wn-md-body p {
+  margin: 0 0 10px;
+}
+
+.wn-md-body code {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 0.84em;
+}
+
+.wn-md-body pre {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+
+.wn-md-body pre code {
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
+.wn-md-body a {
+  color: #6366f1;
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .wn-container {
+    padding: 0 12px;
+    margin-top: 16px;
+  }
+  .wn-hero,
+  .wn-card {
+    padding: 16px;
+  }
+  .wn-hero h1 {
+    font-size: 1.3rem;
+  }
+}

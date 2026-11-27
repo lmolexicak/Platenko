@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261127b">
+  <link rel="stylesheet" href="styles.css?v=20261127c">
 </head>
 <body>
 
@@ -23,14 +23,22 @@
       </a>
       <div class="nav-actions">
         <a href="index.html" class="theme-toggle-btn" style="text-decoration: none;">← Galéria</a>
-        <button type="button" id="adminAutomationBtn" class="theme-toggle-btn" style="display: none;" title="Automatizácia publikovania na sociálne siete a portály">🚀 <span>Automatizácia</span></button>
-        <button type="button" id="adminLookupsBtn" class="theme-toggle-btn" style="display: none;" title="Spravovať číselníky (Techniky, Stavy, Médiá, Rozmery)">⚙️ <span>Číselníky</span></button>
-        <a href="sorter.html" id="adminSorterLink" class="theme-toggle-btn" style="display: none; text-decoration: none;">📋 <span>Organizér</span></a>
         <button id="adminLogoutBtn" class="theme-toggle-btn" style="display: none; color: #ef4444;" title="Odhlásiť sa">🚪 <span>Odhlásiť</span></button>
         <button id="themeToggle" class="theme-toggle-btn">🌙 <span>Tmavý</span></button>
       </div>
     </div>
   </header>
+
+  <nav class="admin-subnav-wrap" id="adminSubnav" aria-label="Admin navigácia" style="display: none;">
+    <div class="admin-subnav-inner">
+      <a href="/admin" class="admin-nav-item active" aria-current="page">🏛️ <span>Katalóg &amp; Editor</span></a>
+      <a href="sorter.html" id="adminSorterLink" class="admin-nav-item">📋 <span>Organizér</span></a>
+      <button type="button" id="adminAutomationBtn" class="admin-nav-item" title="Automatizácia publikovania na sociálne siete a portály">🚀 <span>Automatizácia</span></button>
+      <button type="button" id="adminLookupsBtn" class="admin-nav-item" title="Spravovať číselníky (Techniky, Stavy, Médiá, Rozmery)">⚙️ <span>Číselníky</span></button>
+      <button type="button" id="adminAccountBtn" class="admin-nav-item" title="Zmena hesla správcu a odhlásenie">🔐 <span>Účet &amp; Heslo</span></button>
+      <a href="/whatsnew" class="admin-nav-item" title="Chronologický prehľad noviniek a návodov">🆕 <span>Čo je nové</span></a>
+    </div>
+  </nav>
 
   <!-- Auth Login Gate (No credentials or PIN hints shown) -->
   <div class="sorter-auth-overlay" id="adminAuthOverlay" role="dialog" aria-modal="true" style="position:fixed;inset:0;background:rgba(0,0,0,0.72);backdrop-filter:blur(8px);z-index:250;display:none;align-items:center;justify-content:center;padding:24px;">
@@ -526,8 +534,46 @@
     </div>
   </div>
 
-  <script src="perspective-warp.js?v=20261127b"></script>
-  <script src="cover-studio.js?v=20261127b"></script>
-  <script src="admin.js?v=20261127b"></script>
+  <!-- Account & Password Modal -->
+  <div class="modal-overlay" id="accountModal" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle" style="z-index: 340;">
+    <div class="edit-modal-box" style="max-width: 440px;">
+      <button class="modal-close-btn" id="accountCloseBtn" aria-label="Zavrieť">✕</button>
+      <div style="margin-bottom: 14px; padding-right: 36px;">
+        <h2 id="accountModalTitle" style="font-size: 1.3rem; margin: 0 0 4px;">🔐 Účet &amp; Heslo</h2>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">
+          Prihlásený ako <strong id="admAccountUsername" style="color: var(--text-main);">mario</strong>
+        </p>
+      </div>
+
+      <form id="admChangePassForm" style="display: flex; flex-direction: column; gap: 12px;">
+        <div>
+          <label class="edit-label" for="admCurrentPassword">Aktuálne heslo</label>
+          <input type="password" id="admCurrentPassword" class="edit-input" autocomplete="current-password" required>
+        </div>
+        <div>
+          <label class="edit-label" for="admNewPassword">Nové heslo (min. 6 znakov)</label>
+          <input type="password" id="admNewPassword" class="edit-input" autocomplete="new-password" minlength="6" required>
+        </div>
+        <div>
+          <label class="edit-label" for="admConfirmPassword">Potvrdiť nové heslo</label>
+          <input type="password" id="admConfirmPassword" class="edit-input" autocomplete="new-password" minlength="6" required>
+        </div>
+        <div id="admChangePassMsg" style="display: none;"></div>
+        <button type="submit" class="btn-edit-save" style="width: 100%; justify-content: center;">
+          💾 Uložiť nové heslo
+        </button>
+      </form>
+
+      <hr class="settings-divider">
+
+      <button type="button" id="admAccountLogoutBtn" class="btn-secondary" style="width: 100%; color: #ef4444; border-color: rgba(239, 68, 68, 0.35);">
+        🚪 Odhlásiť sa
+      </button>
+    </div>
+  </div>
+
+  <script src="perspective-warp.js?v=20261127c"></script>
+  <script src="cover-studio.js?v=20261127c"></script>
+  <script src="admin.js?v=20261127c"></script>
 </body>
 </html>

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20261127c">
   <style>
     .sorter-container { max-width: 1200px; margin: 20px auto 80px; padding: 0 24px; }
     
@@ -103,12 +103,22 @@
       </a>
       <div class="nav-actions">
         <a href="index.html" class="theme-toggle-btn" style="text-decoration: none;">← Galéria</a>
-        <a href="/admin" id="sorterAdminLink" class="theme-toggle-btn" style="display: none; text-decoration: none;" title="Admin CMS">🏛️ <span>Admin CMS</span></a>
         <button id="sorterLogoutBtn" class="theme-toggle-btn" style="display: none; color: #ef4444;" title="Odhlásiť sa">🚪 <span>Odhlásiť</span></button>
         <button id="themeToggle" class="theme-toggle-btn">🌙 <span>Tmavý</span></button>
       </div>
     </div>
   </header>
+
+  <nav class="admin-subnav-wrap" id="sorterSubnav" aria-label="Admin navigácia" style="display: none;">
+    <div class="admin-subnav-inner">
+      <a href="/admin" id="sorterAdminLink" class="admin-nav-item">🏛️ <span>Katalóg &amp; Editor</span></a>
+      <a href="sorter.html" class="admin-nav-item active" aria-current="page">📋 <span>Organizér</span></a>
+      <a href="/admin?open=automation" class="admin-nav-item">🚀 <span>Automatizácia</span></a>
+      <a href="/admin?open=lookups" class="admin-nav-item">⚙️ <span>Číselníky</span></a>
+      <a href="/admin?open=account" class="admin-nav-item">🔐 <span>Účet &amp; Heslo</span></a>
+      <a href="/whatsnew" class="admin-nav-item">🆕 <span>Čo je nové</span></a>
+    </div>
+  </nav>
 
   <!-- Auth Login Gate -->
   <div class="sorter-auth-overlay" id="sorterAuthOverlay" role="dialog" aria-modal="true">
@@ -256,6 +266,7 @@
     const sorterLoginSubmit = document.getElementById("sorterLoginSubmit");
     const sorterLogoutBtn = document.getElementById("sorterLogoutBtn");
     const sorterAdminLink = document.getElementById("sorterAdminLink");
+    const sorterSubnav = document.getElementById("sorterSubnav");
 
     // Merge selection state
     let mergeSelection = []; // array of selected IDs (can be 2, 3, 4+)
@@ -269,8 +280,8 @@
 
     function showAuthGate(errorMsg = "") {
       if (sorterMain) sorterMain.style.display = "none";
+      if (sorterSubnav) sorterSubnav.style.display = "none";
       if (sorterLogoutBtn) sorterLogoutBtn.style.display = "none";
-      if (sorterAdminLink) sorterAdminLink.style.display = "none";
       if (sorterAuthOverlay) sorterAuthOverlay.classList.add("open");
       if (sorterAuthError) {
         if (errorMsg) {
@@ -288,8 +299,8 @@
     function hideAuthGate(showLogout = true) {
       if (sorterAuthOverlay) sorterAuthOverlay.classList.remove("open");
       if (sorterMain) sorterMain.style.display = "block";
+      if (sorterSubnav) sorterSubnav.style.display = showLogout ? "block" : "none";
       if (sorterLogoutBtn) sorterLogoutBtn.style.display = showLogout ? "inline-flex" : "none";
-      if (sorterAdminLink) sorterAdminLink.style.display = showLogout ? "inline-flex" : "none";
     }
 
     async function persistItem(id, payload) {

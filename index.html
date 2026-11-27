@@ -17,7 +17,7 @@
       }
     }
   </script>
-  <link rel="stylesheet" href="styles.css?v=20261127b">
+  <link rel="stylesheet" href="styles.css?v=20261127c">
 </head>
 <body>
 
@@ -46,9 +46,9 @@
         <button id="themeToggle" class="theme-toggle-btn" title="Prepnúť svetlý / tmavý režim">
           🌙 <span>Tmavý</span>
         </button>
-        <button id="settingsBtn" class="theme-toggle-btn settings-btn" title="Nastavenia a správa" aria-label="Nastavenia">
+        <a href="/admin" id="settingsBtn" class="theme-toggle-btn settings-btn" style="text-decoration: none;" title="Admin CMS &amp; Nastavenia" aria-label="Otvoriť Admin CMS">
           ⚙️
-        </button>
+        </a>
       </div>
     </div>
   </header>
@@ -332,81 +332,6 @@
     </div>
   </div>
 
-  <!-- Settings & Auth Modal -->
-  <div class="modal-overlay" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
-    <div class="settings-modal-box">
-      <button class="modal-close-btn" id="settingsModalCloseBtn" aria-label="Zavrieť">✕</button>
-      <h2 id="settingsModalTitle" style="font-size: 1.35rem; margin-bottom: 6px;">⚙️ Nastavenia</h2>
-
-      <!-- Login View (when logged out) -->
-      <div id="settingsLoginView">
-        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 18px;">
-          Prihlás sa pre prístup k úpravám albumov, mazaniu a organizéru.
-        </p>
-        <form id="loginForm" style="display: flex; flex-direction: column; gap: 14px;">
-          <div>
-            <label class="edit-label" for="loginUsername">Meno</label>
-            <input type="text" id="loginUsername" class="edit-input" value="mario" autocomplete="username" required>
-          </div>
-          <div>
-            <label class="edit-label" for="loginPassword">Heslo</label>
-            <input type="password" id="loginPassword" class="edit-input" placeholder="Zadaj heslo..." autocomplete="current-password" required>
-          </div>
-          <div id="loginError" class="settings-error" style="display: none;"></div>
-          <button type="submit" id="loginSubmitBtn" class="btn-edit-save" style="width: 100%; justify-content: center; margin-top: 4px;">
-            🔐 Prihlásiť sa
-          </button>
-        </form>
-      </div>
-
-      <!-- Authenticated View (when logged in) -->
-      <div id="settingsAdminView" style="display: none;">
-        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 18px;">
-          Prihlásený ako <strong id="settingsUserLabel" style="color: var(--text-main);">mario</strong>
-        </p>
-
-        <div class="settings-action-list">
-          <a href="/admin" class="btn-edit-save" style="width: 100%; text-align: center; text-decoration: none; justify-content: center;">
-            🏛️ Otvoriť Admin CMS (Pridať / Orezať / Upraviť)
-          </a>
-          <a href="sorter.html" class="btn-secondary" style="width: 100%; text-align: center; text-decoration: none; display: block;">
-            📋 Otvoriť Organizér (Hromadné úpravy &amp; zlúčenie)
-          </a>
-        </div>
-
-        <hr class="settings-divider">
-
-        <details class="settings-details" id="changePasswordDetails">
-          <summary>🔑 Zmeniť heslo</summary>
-          <form id="changePasswordForm" style="display: flex; flex-direction: column; gap: 12px; margin-top: 14px;">
-            <div>
-              <label class="edit-label" for="currentPassword">Aktuálne heslo</label>
-              <input type="password" id="currentPassword" class="edit-input" autocomplete="current-password" required>
-            </div>
-            <div>
-              <label class="edit-label" for="newPassword">Nové heslo (min. 6 znakov)</label>
-              <input type="password" id="newPassword" class="edit-input" autocomplete="new-password" minlength="6" required>
-            </div>
-            <div>
-              <label class="edit-label" for="confirmPassword">Potvrdiť nové heslo</label>
-              <input type="password" id="confirmPassword" class="edit-input" autocomplete="new-password" minlength="6" required>
-            </div>
-            <div id="changePassMsg" style="display: none;"></div>
-            <button type="submit" class="btn-secondary" style="width: 100%;">
-              Uložiť nové heslo
-            </button>
-          </form>
-        </details>
-
-        <hr class="settings-divider">
-
-        <button type="button" id="logoutBtn" class="btn-secondary" style="width: 100%; color: #ef4444; border-color: rgba(239, 68, 68, 0.35);">
-          🚪 Odhlásiť sa
-        </button>
-      </div>
-    </div>
-  </div>
-
   <!-- AR Wall Preview Modal (Desktop QR + Mobile Launcher) -->
   <div class="modal-overlay ar-modal-overlay" id="arModal" role="dialog" aria-modal="true" aria-labelledby="arArtTitle">
     <div class="ar-modal-box">
@@ -595,6 +520,6 @@
   <script src="detail-modal.js?v=20261125h"></script>
   <script src="ar-viewer.js?v=20261125h"></script>
   <script src="gallery-3d.js?v=20261125h"></script>
-  <script src="app.js?v=20261125h"></script>
+  <script src="app.js?v=20261127c"></script>
 </body>
 </html>

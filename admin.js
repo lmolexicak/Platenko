@@ -55,6 +55,7 @@
   let editingPublishChannels = {};
   let photoDragState = null;
   let suppressNextPhotoClick = false;
+  let currentUsername = "mario";
 
   const dom = {};
   function cacheDom() {
@@ -66,10 +67,22 @@
     dom.loginSubmit = document.getElementById("adminLoginSubmit");
 
     dom.main = document.getElementById("adminMain");
+    dom.adminSubnav = document.getElementById("adminSubnav");
     dom.logoutBtn = document.getElementById("adminLogoutBtn");
     dom.automationBtn = document.getElementById("adminAutomationBtn");
     dom.lookupsBtn = document.getElementById("adminLookupsBtn");
+    dom.accountBtn = document.getElementById("adminAccountBtn");
     dom.sorterLink = document.getElementById("adminSorterLink");
+
+    dom.accountModal = document.getElementById("accountModal");
+    dom.accountCloseBtn = document.getElementById("accountCloseBtn");
+    dom.accountUsername = document.getElementById("admAccountUsername");
+    dom.changePassForm = document.getElementById("admChangePassForm");
+    dom.curPass = document.getElementById("admCurrentPassword");
+    dom.newPass = document.getElementById("admNewPassword");
+    dom.confirmPass = document.getElementById("admConfirmPassword");
+    dom.changePassMsg = document.getElementById("admChangePassMsg");
+    dom.accountLogoutBtn = document.getElementById("admAccountLogoutBtn");
 
     dom.automationModal = document.getElementById("automationModal");
     dom.automationCloseBtn = document.getElementById("automationCloseBtn");
@@ -238,10 +251,8 @@
 
   function showAuthGate(errorText = "") {
     if (dom.main) dom.main.style.display = "none";
+    if (dom.adminSubnav) dom.adminSubnav.style.display = "none";
     if (dom.logoutBtn) dom.logoutBtn.style.display = "none";
-    if (dom.automationBtn) dom.automationBtn.style.display = "none";
-    if (dom.lookupsBtn) dom.lookupsBtn.style.display = "none";
-    if (dom.sorterLink) dom.sorterLink.style.display = "none";
     if (dom.authOverlay) dom.authOverlay.style.display = "flex";
     if (dom.authError) {
       if (errorText) {
@@ -259,10 +270,37 @@
   function hideAuthGate() {
     if (dom.authOverlay) dom.authOverlay.style.display = "none";
     if (dom.main) dom.main.style.display = "block";
+    if (dom.adminSubnav) dom.adminSubnav.style.display = "block";
     if (dom.logoutBtn) dom.logoutBtn.style.display = "inline-flex";
-    if (dom.automationBtn) dom.automationBtn.style.display = "inline-flex";
-    if (dom.lookupsBtn) dom.lookupsBtn.style.display = "inline-flex";
-    if (dom.sorterLink) dom.sorterLink.style.display = "inline-flex";
+    if (dom.accountUsername) dom.accountUsername.textContent = currentUsername || "mario";
+  }
+
+  function openAccountModal() {
+    if (!dom.accountModal) return;
+    if (dom.accountUsername) dom.accountUsername.textContent = currentUsername || "mario";
+    if (dom.changePassMsg) dom.changePassMsg.style.display = "none";
+    if (dom.changePassForm) dom.changePassForm.reset();
+    dom.accountModal.classList.add("open");
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeAccountModal() {
+    if (!dom.accountModal) return;
+    dom.accountModal.classList.remove("open");
+    document.body.style.overflow = "";
+  }
+
+  function handleDeepLinkOpenParam() {
+    const params = new URLSearchParams(window.location.search);
+    const openParam = (params.get("open") || "").trim().toLowerCase();
+    if (!openParam) return;
+    if (openParam === "automation") openAutomationModal("channels");
+    else if (openParam === "lookups") openLookupsModal();
+    else if (openParam === "account") openAccountModal();
+    params.delete("open");
+    const qs = params.toString();
+    const cleanUrl = window.location.pathname + (qs ? `?${qs}` : "");
+    window.history.replaceState({}, "", cleanUrl);
   }
 
   // ---- Dynamic Lookups Population & CRUD Modal ----
@@ -2099,11 +2137,13 @@
             throw new Error(data.error || "Nesprávne meno alebo heslo.");
           }
           dom.loginPass.value = "";
+          currentUsername = data.username || (dom.loginUser ? dom.loginUser.value.trim() : "mario");
           hideAuthGate();
           resetForm();
           loadLookups().then(() => loadArtworks());
           loadAutomationChannels();
           loadAutomationIntegrations();
+          handleDeepLinkOpenParam();
         } catch (err) {
           if (dom.authError) {
             dom.authError.textContent = err.message || "Chyba prihlásenia.";
@@ -2118,7 +2158,68 @@
     if (dom.logoutBtn) {
       dom.logoutBtn.addEventListener("click", async () => {
         try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
+        closeAccountModal();
         showAuthGate();
+      });
+    }
+
+    if (dom.accountBtn) dom.accountBtn.addEventListener("click", openAccountModal);
+    if (dom.accountCloseBtn) dom.accountCloseBtn.addEventListener("click", closeAccountModal);
+    if (dom.accountModal) {
+      dom.accountModal.addEventListener("click", (e) => {
+        if (e.target === dom.accountModal) closeAccountModal();
+      });
+    }
+    if (dom.accountLogoutBtn) {
+      dom.accountLogoutBtn.addEventListener("click", async () => {
+        try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
+        closeAccountModal();
+        showAuthGate();
+      });
+    }
+    if (dom.changePassForm) {
+      dom.changePassForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const curPass = dom.curPass ? dom.curPass.value : "";
+        const newPass = dom.newPass ? dom.newPass.value : "";
+        const confPass = dom.confirmPass ? dom.confirmPass.value : "";
+
+        const showMsg = (text, isErr) => {
+          if (!dom.changePassMsg) return;
+          dom.changePassMsg.textContent = text;
+          dom.changePassMsg.className = isErr ? "settings-error" : "settings-success";
+          dom.changePassMsg.style.display = "block";
+        };
+
+        if (newPass.length < 6) {
+          showMsg("Nové heslo musí mať aspoň 6 znakov.", true);
+          return;
+        }
+        if (newPass !== confPass) {
+          showMsg("Nové heslá sa nezhodujú.", true);
+          return;
+        }
+
+        try {
+          const resp = await fetch("/api/auth/change-password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ currentPassword: curPass, newPassword: newPass }),
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (resp.status === 401 && data.error === "Unauthorized") {
+            closeAccountModal();
+            showAuthGate("Prihlásenie vypršalo.");
+            return;
+          }
+          if (!resp.ok || !data.success) {
+            throw new Error(data.error || "Nepodarilo sa zmeniť heslo.");
+          }
+          dom.changePassForm.reset();
+          showMsg("✓ Heslo bolo úspešne zmenené.", false);
+        } catch (err) {
+          showMsg(err.message || "Chyba pri zmene hesla.", true);
+        }
       });
     }
 
@@ -2335,12 +2436,14 @@
       const resp = await fetch("/api/auth/me");
       const data = await resp.json();
       if (data && data.authenticated) {
+        currentUsername = data.username || "mario";
         hideAuthGate();
         resetForm();
         await loadLookups();
         loadAutomationChannels();
         loadAutomationIntegrations();
         loadArtworks();
+        handleDeepLinkOpenParam();
       } else {
         showAuthGate();
       }
