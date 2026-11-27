@@ -656,16 +656,16 @@ const renderDryRunHtml = (report) => {
           summaryEl.style.display = 'block';
           if (done && totalFailed === 0) {
             statusEl.textContent = '✅ Migrácia dokončená: ' + totalSucceeded + ' diel, 0 chýb, 0 zmazaných starých R2 objektov.';
-            summaryEl.textContent = 'MIGRATE_COMPLETE\n' + JSON.stringify(out, null, 2);
+            summaryEl.textContent = 'MIGRATE_COMPLETE\\n' + JSON.stringify(out, null, 2);
           } else {
             statusEl.textContent = '⚠️ Migrácia zastavená s chybou alebo nedokončená.';
-            summaryEl.textContent = 'MIGRATE_ERROR\n' + JSON.stringify(out, null, 2);
+            summaryEl.textContent = 'MIGRATE_ERROR\\n' + JSON.stringify(out, null, 2);
             runBtn.disabled = false;
           }
         } catch (err) {
           summaryEl.style.display = 'block';
           statusEl.textContent = '❌ Chyba behu migrácie: ' + err.message;
-          summaryEl.textContent = 'MIGRATE_ERROR\n' + JSON.stringify({ message: err.message, totalBatches, totalSucceeded, totalFailed, errors }, null, 2);
+          summaryEl.textContent = 'MIGRATE_ERROR\\n' + JSON.stringify({ message: err.message, totalBatches, totalSucceeded, totalFailed, errors }, null, 2);
           runBtn.disabled = false;
         }
       });
