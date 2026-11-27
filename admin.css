@@ -159,7 +159,8 @@
 
 .adm-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0 6px;
 }
 
 .adm-table th {
@@ -167,7 +168,7 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   color: var(--text-muted);
-  padding: 10px 8px;
+  padding: 8px 8px 10px;
   border-bottom: 1px solid var(--border-color);
   position: sticky;
   top: 0;
@@ -177,8 +178,42 @@
 
 .adm-table td {
   padding: 10px 8px;
-  border-bottom: 1px solid var(--border-color);
   vertical-align: middle;
+}
+
+.adm-table tbody tr.adm-clickable-row {
+  cursor: pointer;
+}
+
+.adm-table tbody tr.adm-clickable-row td {
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.adm-table tbody tr.adm-clickable-row td:first-child {
+  border-left: 1px solid var(--border-color);
+  border-radius: 10px 0 0 10px;
+}
+
+.adm-table tbody tr.adm-clickable-row td:last-child {
+  border-right: 1px solid var(--border-color);
+  border-radius: 0 10px 10px 0;
+}
+
+.adm-table tbody tr.adm-clickable-row:hover td {
+  background: var(--bg-subtle);
+  border-top-color: rgba(99, 102, 241, 0.4);
+  border-bottom-color: rgba(99, 102, 241, 0.4);
+}
+
+.adm-table tbody tr.adm-clickable-row:hover td:first-child {
+  border-left-color: rgba(99, 102, 241, 0.4);
+}
+
+.adm-table tbody tr.adm-clickable-row:hover td:last-child {
+  border-right-color: rgba(99, 102, 241, 0.4);
 }
 
 .adm-row-thumb {
@@ -1078,9 +1113,18 @@ body.adm-is-dragging {
   grid-template-columns: 1fr 1fr;
 }
 
-.adm-table tr.is-active {
-  background: rgba(99, 102, 241, 0.08);
-  box-shadow: inset 3px 0 0 #6366f1;
+.adm-table tbody tr.is-active td {
+  background: rgba(99, 102, 241, 0.09);
+  border-top-color: rgba(99, 102, 241, 0.5);
+  border-bottom-color: rgba(99, 102, 241, 0.5);
+}
+
+.adm-table tbody tr.is-active td:first-child {
+  border-left: 3px solid #6366f1;
+}
+
+.adm-table tbody tr.is-active td:last-child {
+  border-right-color: rgba(99, 102, 241, 0.5);
 }
 
 .adm-zoom-bar {

@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Plátenko | Čo je nové</title>
+  <title>Plátenko Novinky | Čo je nové</title>
   <link rel="icon" type="image/png" href="images/logo_only_IG_transparent.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261127k">
-  <link rel="stylesheet" href="admin.css?v=20261127k">
+  <link rel="stylesheet" href="styles.css?v=20261127l">
+  <link rel="stylesheet" href="admin.css?v=20261127l">
 </head>
 <body>
 
@@ -18,7 +18,7 @@
       <a href="index.html" class="brand">
         <img src="images/logo_only_IG_transparent.png" alt="Plátenko" class="brand-logo">
         <div class="brand-text">
-          <span class="brand-title">Plátenko</span>
+          <span class="brand-title">Plátenko Novinky</span>
           <span class="brand-subtitle">Admin CMS · Čo je nové &amp; návody</span>
         </div>
       </a>
@@ -317,7 +317,7 @@
 
       async function loadChangelog() {
         try {
-          const resp = await fetch("/whatsnew.md?v=20261127k", { credentials: "same-origin" });
+          const resp = await fetch("/whatsnew.md?v=20261127l", { credentials: "same-origin" });
           if (resp.status === 401) {
             showAuthGate("Relácia vypršala, prihlás sa znova.");
             return;

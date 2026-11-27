@@ -81,6 +81,8 @@
     dom.siteSettingsBtn = document.getElementById("adminSiteSettingsBtn");
     dom.accountBtn = document.getElementById("adminAccountBtn");
     dom.sorterLink = document.getElementById("adminSorterLink");
+    dom.brandTitle = document.getElementById("adminBrandTitle");
+    dom.brandSubtitle = document.getElementById("adminBrandSubtitle");
 
     dom.inquiriesModal = document.getElementById("inquiriesModal");
     dom.inquiriesCloseBtn = document.getElementById("inquiriesCloseBtn");
@@ -375,6 +377,14 @@
     }
   }
 
+  function setAdminBrand(section, subtitle) {
+    const label = section ? `Plátenko ${section}` : "Plátenko Katalóg";
+    const sub = subtitle || "Admin CMS · Správa diel & 4-bodový orez";
+    if (dom.brandTitle) dom.brandTitle.textContent = label;
+    if (dom.brandSubtitle) dom.brandSubtitle.textContent = sub;
+    document.title = `${label} | Admin CMS`;
+  }
+
   function openAccountModal() {
     if (!dom.accountModal) return;
     if (dom.accountUsername) dom.accountUsername.textContent = currentUsername || "mario";
@@ -382,12 +392,14 @@
     if (dom.changePassForm) dom.changePassForm.reset();
     dom.accountModal.classList.add("open");
     document.body.style.overflow = "hidden";
+    setAdminBrand("Účet", "Admin CMS · Heslo správcu a prihlásenie");
   }
 
   function closeAccountModal() {
     if (!dom.accountModal) return;
     dom.accountModal.classList.remove("open");
     document.body.style.overflow = "";
+    setAdminBrand();
   }
 
   // ---- Inquiries Manager Modal (Dopyty z galérie) ----
@@ -513,6 +525,7 @@
     renderInquiriesList();
     dom.inquiriesModal.classList.add("open");
     document.body.style.overflow = "hidden";
+    setAdminBrand("Dopyty", "Admin CMS · Prijaté správy z galérie");
     loadInquiries();
   }
 
@@ -520,6 +533,7 @@
     if (!dom.inquiriesModal) return;
     dom.inquiriesModal.classList.remove("open");
     document.body.style.overflow = "";
+    setAdminBrand();
   }
 
   // ---- Site Settings & Texts Modal (Web & Texty) ----
@@ -571,6 +585,7 @@
     populateSiteSettingsForm(currentSiteSettings);
     dom.siteSettingsModal.classList.add("open");
     document.body.style.overflow = "hidden";
+    setAdminBrand("Web & Texty", "Admin CMS · Verejné texty, O tvorbe a kontakt");
     loadSiteSettings();
   }
 
@@ -578,6 +593,7 @@
     if (!dom.siteSettingsModal) return;
     dom.siteSettingsModal.classList.remove("open");
     document.body.style.overflow = "";
+    setAdminBrand();
   }
 
   function handleDeepLinkOpenParam() {
@@ -826,12 +842,14 @@
     if (dom.lookupStatusMsg) dom.lookupStatusMsg.style.display = "none";
     dom.lookupsModal.classList.add("open");
     document.body.style.overflow = "hidden";
+    setAdminBrand("Číselníky", "Admin CMS · Techniky, stavy, médiá a rozmery");
   }
 
   function closeLookupsModal() {
     if (!dom.lookupsModal) return;
     dom.lookupsModal.classList.remove("open");
     document.body.style.overflow = "";
+    setAdminBrand();
   }
 
   // ---- Automation Channels Modal (Per-Network ON/OFF Switches) & Artwork Publish Panel ----
@@ -1171,6 +1189,7 @@
     renderAutomationModal();
     dom.automationModal.classList.add("open");
     document.body.style.overflow = "hidden";
+    setAdminBrand("Automatizácia", "Admin CMS · Sociálne siete & predajné portály");
     loadAutomationChannels();
     loadAutomationIntegrations();
   }
@@ -1180,6 +1199,7 @@
     setIntegrationsUnlocked(false);
     dom.automationModal.classList.remove("open");
     document.body.style.overflow = "";
+    setAdminBrand();
   }
 
   function renderArtworkPublishPanel(art) {
@@ -1951,6 +1971,8 @@
     filtered.forEach((art) => {
       const globalIdx = artworks.indexOf(art);
       const tr = document.createElement("tr");
+      tr.classList.add("adm-clickable-row");
+      tr.title = "Klikni na riadok pre úpravu diela";
       tr.dataset.artId = art.id;
       tr.dataset.globalIdx = String(globalIdx);
       if (editingId && art.id === editingId) {
@@ -2007,11 +2029,25 @@
         posBtn.addEventListener("click", () => openInlinePositionEditor(tr, art, globalIdx));
       }
 
-      tr.querySelector(".adm-edit-btn").addEventListener("click", () => {
+      tr.addEventListener("click", (e) => {
+        if (dragState) return;
+        if (e.target.closest("button, a, input, select, textarea, label, .adm-drag-handle, .adm-pos-btn, .adm-pos-input")) return;
+        const sel = window.getSelection ? window.getSelection().toString().trim() : "";
+        if (sel) return;
+        if (editingId === art.id) return;
         if (!confirmDiscardIfDirty()) return;
         loadArtworkIntoForm(art);
       });
-      tr.querySelector(".adm-del-btn").addEventListener("click", () => deleteArtwork(art));
+
+      tr.querySelector(".adm-edit-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!confirmDiscardIfDirty()) return;
+        loadArtworkIntoForm(art);
+      });
+      tr.querySelector(".adm-del-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        deleteArtwork(art);
+      });
 
       dom.inventoryBody.appendChild(tr);
     });
