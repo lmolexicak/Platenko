@@ -2310,13 +2310,14 @@
     }
   }
 
-  function slugify(str) {
-    return (str || "malba")
-      .toLowerCase()
+  function toAsciiSlug(text) {
+    return String(text ?? "")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "malba";
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "");
   }
 
   function buildEditPayloadFromForm() {
@@ -2427,8 +2428,10 @@
           return;
         }
         const editPayload = buildEditPayloadFromForm();
-        const slug = slugify(title);
-        const folder = `${editPayload.date}_${slug}-${Date.now().toString(36).slice(-4)}`;
+        const dateSlug = toAsciiSlug(editPayload.date) || new Date().toISOString().slice(0, 10);
+        const titleSlug = toAsciiSlug(title) || "malba";
+        const suffix = Date.now().toString(36).slice(-4);
+        const folder = toAsciiSlug(`${dateSlug}-${titleSlug}-${suffix}`) || `malba-${suffix}`;
         const newId = `art-${folder}`;
         savedId = newId;
         successMsg = "✓ Nová maľba (výrez aj originál) uložená do galérie!";
@@ -2451,6 +2454,8 @@
           return;
         }
         if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const createdData = await resp.json().catch(() => ({}));
+        if (createdData && createdData.id) savedId = createdData.id;
       }
 
       await loadArtworks();

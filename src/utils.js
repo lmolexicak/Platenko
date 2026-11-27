@@ -60,6 +60,26 @@ export const urlToR2Key = (imageUrl) => {
   return clean.startsWith('paintings/') ? clean : null;
 };
 
+export const toAsciiSlug = (text) =>
+  String(text ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+export const toAsciiFilename = (filename, fallbackStem = 'image') => {
+  const raw = String(filename ?? '').trim();
+  const lastDot = raw.lastIndexOf('.');
+  if (lastDot > 0 && lastDot < raw.length - 1) {
+    const stem = toAsciiSlug(raw.slice(0, lastDot)) || fallbackStem;
+    const ext = toAsciiSlug(raw.slice(lastDot + 1));
+    return ext ? `${stem}.${ext}` : stem;
+  }
+  return toAsciiSlug(raw) || fallbackStem;
+};
+
 export const escapeHtml = (str) =>
   String(str || '')
     .replace(/&/g, '&amp;')
@@ -232,8 +252,11 @@ export const decodeDataImage = (dataUrl) => {
 export const uploadDataImageWithThumb = async (env, dataUrl, thumbDataUrl, folder, prefix = 'cover') => {
   const decoded = decodeDataImage(dataUrl);
   if (!decoded) return null;
+  const safeFolder = toAsciiSlug(folder) || 'artwork';
+  const safePrefix = toAsciiSlug(prefix) || 'image';
   const rand = Math.random().toString(36).slice(2, 6);
-  const r2Key = `paintings/${folder}/${prefix}_${Date.now()}_${rand}.${decoded.ext}`;
+  const safeFile = toAsciiFilename(`${safePrefix}-${Date.now()}-${rand}.${decoded.ext}`, 'image');
+  const r2Key = `paintings/${safeFolder}/${safeFile}`;
   await env.IMAGES.put(r2Key, decoded.bytes, {
     httpMetadata: { contentType: decoded.contentType },
   });

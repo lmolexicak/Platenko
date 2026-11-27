@@ -3,6 +3,7 @@ import {
   parseJsonSafe,
   toAbsoluteUrl,
   urlToR2Key,
+  toAsciiSlug,
   sleepMs,
   encryptCredentials,
   decryptCredentials,
@@ -1612,8 +1613,8 @@ export async function handleAutomationRequest(request, env, url, pathname) {
         return jsonResponse({ error: 'Dielo neexistuje.' }, 404);
       }
 
-      const folder = existing.folder_name || artworkId.replace(/^art-/, '');
-      const uploadedUrl = await uploadDataImageWithThumb(env, imageDataUrl, thumbDataUrl, folder, 'social_4x5');
+      const folder = toAsciiSlug(existing.folder_name || artworkId.replace(/^art-/i, '')) || 'artwork';
+      const uploadedUrl = await uploadDataImageWithThumb(env, imageDataUrl, thumbDataUrl, folder, 'social-4x5');
       if (!uploadedUrl) {
         return jsonResponse({ error: 'Nepodarilo sa spracovať obrázok.' }, 400);
       }

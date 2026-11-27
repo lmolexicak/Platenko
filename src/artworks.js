@@ -4,6 +4,7 @@ import {
   parseJsonSafe,
   parseDimPair,
   getAuthSession,
+  toAsciiSlug,
   uploadDataImageWithThumb,
   deleteUnusedR2Images,
   serializeArtworkRow,
@@ -89,11 +90,16 @@ export async function handleArtworksRequest(request, env, pathname) {
         thumbMap = {},
       } = body;
 
-      if (!id) {
+      const rawId = typeof id === 'string' ? id.trim() : '';
+      if (!rawId) {
         return jsonResponse({ error: 'Missing artwork id' }, 400);
       }
 
-      const resolvedFolder = folder || id.replace(/^art-/, '');
+      const rawIdBase = rawId.replace(/^art-/i, '');
+      const fallbackBase = toAsciiSlug(`${date || ''}-${title || 'malba'}`) || `malba-${Date.now().toString(36)}`;
+      const idSlug = toAsciiSlug(rawIdBase) || fallbackBase;
+      const resolvedId = `art-${idSlug}`;
+      const resolvedFolder = toAsciiSlug(folder || idSlug) || idSlug;
       const hasExplicitDims = Number(widthCm) > 0 && Number(heightCm) > 0;
       const parsedFromStr = parseDimPair(dimensions || '50 × 70 cm');
       const resolvedWidth = hasExplicitDims ? Number(widthCm) : parsedFromStr.widthCm;
@@ -154,7 +160,7 @@ export async function handleArtworksRequest(request, env, pathname) {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
         .bind(
-          id,
+          resolvedId,
           resolvedFolder,
           title ?? '',
           date ?? null,
@@ -182,20 +188,20 @@ export async function handleArtworksRequest(request, env, pathname) {
         .run();
 
       const stmts = [
-        env.DB.prepare(`DELETE FROM artwork_images WHERE artwork_id = ?`).bind(id),
+        env.DB.prepare(`DELETE FROM artwork_images WHERE artwork_id = ?`).bind(resolvedId),
       ];
       resolvedImgs.forEach((imgUrl, idx) => {
         stmts.push(
           env.DB.prepare(
             `INSERT INTO artwork_images (artwork_id, image_url, is_cover, sort_order) VALUES (?, ?, ?, ?)`
-          ).bind(id, imgUrl, idx === 0 ? 1 : 0, idx)
+          ).bind(resolvedId, imgUrl, idx === 0 ? 1 : 0, idx)
         );
       });
       await env.DB.batch(stmts);
 
       return jsonResponse({
         success: true,
-        id,
+        id: resolvedId,
         priceEur: resolvedPrice,
         portalPrices: sanitizedPortalPrices,
         socialImageUrl: resolvedSocialImg,
@@ -459,7 +465,7 @@ export async function handleArtworksRequest(request, env, pathname) {
       )
         .bind(id)
         .first();
-      const folder = (existingArtRow && existingArtRow.folder_name) || id.replace(/^art-/, '');
+      const folder = toAsciiSlug((existingArtRow && existingArtRow.folder_name) || id.replace(/^art-/i, '')) || 'artwork';
 
       let uploadedRawUrl = null;
       let oldRawToClean = null;
