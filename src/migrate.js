@@ -124,6 +124,21 @@ const inspectD1Schema = async (env) => {
   };
 };
 
+const getArtworksColumnsAndInquiries = async (env) => {
+  const [colsRes, inqTbl] = await Promise.all([
+    env.DB.prepare(`PRAGMA table_info("artworks")`).all(),
+    env.DB.prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'inquiries' LIMIT 1`).first(),
+  ]);
+  const colNames = (colsRes.results || []).map((c) => String(c.name));
+  return {
+    tables: [],
+    tableColumns: { artworks: colNames },
+    detectedRefColumns: [],
+    unexpectedRefColumns: [],
+    hasInquiriesTable: Boolean(inqTbl && inqTbl.ok === 1),
+  };
+};
+
 const listAllR2Keys = async (env) => {
   const r2Map = new Map();
   let cursor;
@@ -151,12 +166,12 @@ const ensureMigrationLogTable = async (env) => {
   `).run();
 };
 
-const buildMigrationPlan = async (env) => {
+const buildMigrationPlan = async (env, { includeR2Scan = false, includeFullSchema = false } = {}) => {
   const [schema, artRes, imgRes, r2Map] = await Promise.all([
-    inspectD1Schema(env),
+    includeFullSchema ? inspectD1Schema(env) : getArtworksColumnsAndInquiries(env),
     env.DB.prepare(`SELECT * FROM artworks ORDER BY sort_order ASC, date_created DESC, id DESC`).all(),
     env.DB.prepare(`SELECT id, artwork_id, image_url, is_cover, sort_order FROM artwork_images ORDER BY artwork_id, sort_order ASC, id ASC`).all(),
-    listAllR2Keys(env),
+    includeR2Scan ? listAllR2Keys(env) : Promise.resolve(null),
   ]);
 
   const artworks = artRes.results || [];
@@ -244,10 +259,10 @@ const buildMigrationPlan = async (env) => {
         uniquePairMap.set(m.oldKey, {
           oldKey: m.oldKey,
           newKey: m.newKey,
-          sourceExists: r2Map.has(m.oldKey),
-          hasThumb: r2Map.has(`thumbs/${m.oldKey}`),
-          targetExists: r2Map.has(m.newKey),
-          thumbTargetExists: r2Map.has(`thumbs/${m.newKey}`),
+          sourceExists: r2Map ? r2Map.has(m.oldKey) : null,
+          hasThumb: r2Map ? r2Map.has(`thumbs/${m.oldKey}`) : null,
+          targetExists: r2Map ? r2Map.has(m.newKey) : null,
+          thumbTargetExists: r2Map ? r2Map.has(`thumbs/${m.newKey}`) : null,
           alreadyLogged: Boolean(logged && logged.new_r2_key === m.newKey),
         });
       }
@@ -349,7 +364,7 @@ const buildMigrationPlan = async (env) => {
         ...pair,
       });
 
-      if (!pair.sourceExists && !pair.targetExists) {
+      if (r2Map && !pair.sourceExists && !pair.targetExists) {
         missingSourceR2Keys.push({
           artworkOldId: item.oldId,
           oldKey: pair.oldKey,
@@ -365,7 +380,7 @@ const buildMigrationPlan = async (env) => {
           sources,
           message: `Viacero rôznych R2 objektov (${sources.join(', ')}) sa mapuje na „${pair.newKey}“.`,
         });
-      } else if (pair.targetExists && !pair.alreadyLogged) {
+      } else if (r2Map && pair.targetExists && !pair.alreadyLogged) {
         const oldMeta = r2Map.get(pair.oldKey);
         const newMeta = r2Map.get(pair.newKey);
         const sameSize = Boolean(pair.sourceExists && oldMeta && newMeta && oldMeta.size === newMeta.size);
@@ -383,17 +398,19 @@ const buildMigrationPlan = async (env) => {
   }
 
   const orphanNonAsciiR2Keys = [];
-  for (const r2Key of r2Map.keys()) {
-    const baseKey = r2Key.startsWith('thumbs/') ? r2Key.slice('thumbs/'.length) : r2Key;
-    if (!baseKey.startsWith('paintings/')) continue;
-    if (referencedR2Keys.has(baseKey)) continue;
-    const targetBase = toAsciiR2Key(baseKey);
-    if (baseKey !== targetBase) {
-      orphanNonAsciiR2Keys.push({
-        r2Key,
-        suggestedKey: r2Key.startsWith('thumbs/') ? `thumbs/${targetBase}` : targetBase,
-        size: r2Map.get(r2Key).size,
-      });
+  if (r2Map) {
+    for (const r2Key of r2Map.keys()) {
+      const baseKey = r2Key.startsWith('thumbs/') ? r2Key.slice('thumbs/'.length) : r2Key;
+      if (!baseKey.startsWith('paintings/')) continue;
+      if (referencedR2Keys.has(baseKey)) continue;
+      const targetBase = toAsciiR2Key(baseKey);
+      if (baseKey !== targetBase) {
+        orphanNonAsciiR2Keys.push({
+          r2Key,
+          suggestedKey: r2Key.startsWith('thumbs/') ? `thumbs/${targetBase}` : targetBase,
+          size: r2Map.get(r2Key).size,
+        });
+      }
     }
   }
 
@@ -405,7 +422,7 @@ const buildMigrationPlan = async (env) => {
     r2Map,
     totalArtworks: artworks.length,
     totalArtworkImages: artworkImages.length,
-    totalR2Objects: r2Map.size,
+    totalR2Objects: r2Map ? r2Map.size : null,
     artworksToMigrate,
     allR2Copies,
     missingSourceR2Keys,
@@ -479,18 +496,20 @@ const renderDryRunHtml = (report) => {
     <tr>
       <td><code>${escapeHtml(r.oldKey)}</code></td>
       <td><code>${escapeHtml(r.newKey)}</code></td>
-      <td>${r.sourceExists ? '✅' : '❌ chýba'}</td>
-      <td>${r.hasThumb ? '✅' : '—'}</td>
-      <td>${r.targetExists ? '✅ existuje' : '—'}</td>
+      <td>${r.sourceExists === null ? '— (rýchly náhľad)' : (r.sourceExists ? '✅' : '❌ chýba')}</td>
+      <td>${r.hasThumb === null ? '—' : (r.hasThumb ? '✅' : '—')}</td>
+      <td>${r.targetExists === null ? '—' : (r.targetExists ? '✅ existuje' : '—')}</td>
     </tr>
   `).join('');
 
-  const schemaRowsHtml = report.schema.tables.map((t) => `
-    <tr>
-      <td><strong>${escapeHtml(t.name)}</strong></td>
-      <td><code>${escapeHtml(t.columns.map((c) => `${c.name} (${c.type || 'ANY'}${c.pk ? ', PK' : ''})`).join(', '))}</code></td>
-    </tr>
-  `).join('');
+  const schemaRowsHtml = report.schema.tables.length > 0
+    ? report.schema.tables.map((t) => `
+      <tr>
+        <td><strong>${escapeHtml(t.name)}</strong></td>
+        <td><code>${escapeHtml(t.columns.map((c) => `${c.name} (${c.type || 'ANY'}${c.pk ? ', PK' : ''})`).join(', '))}</code></td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="2">Rýchly režim (pre plný výpis schémy pridaj <code>?full=1</code>, pre R2 sken <code>?scanR2=1</code>).</td></tr>';
 
   const collisionListHtml = s.collisionsTotal > 0
     ? `<div style="background:#fef2f2;border:1px solid #ef4444;padding:12px 16px;border-radius:8px;margin:16px 0;color:#991b1b;">
@@ -547,7 +566,7 @@ const renderDryRunHtml = (report) => {
     <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;">
       <div>
         <strong style="display:block;font-size:15px;">Režim 2: Bezpečná migrácia (kopírovanie R2 + úprava D1, BEZ mazania starých R2)</strong>
-        <span style="font-size:12px;color:#52525b;">Spúšťa sa po malých dávkach (batchSize=2). Staré R2 súbory zostávajú nedotknuté až do samostatného Cleanup kroku.</span>
+        <span style="font-size:12px;color:#52525b;">Spúšťa sa po malých dávkach (batchSize=1, max 4 páry R2 na volanie). Staré R2 súbory zostávajú nedotknuté až do samostatného Cleanup kroku.</span>
       </div>
       <button type="button" id="runMigrateBtn" class="btn" style="border:none;background:#16a34a;font-weight:600;${(s.collisionsTotal > 0 || s.artworksNeedingMigration === 0) ? 'opacity:0.5;cursor:not-allowed;' : 'cursor:pointer;'}" ${(s.collisionsTotal > 0 || s.artworksNeedingMigration === 0) ? 'disabled' : ''}>
         🚀 Spustiť migráciu (Režim 2: kopírovanie R2 + D1, bez mazania)
@@ -607,12 +626,12 @@ const renderDryRunHtml = (report) => {
         const errors = [];
 
         try {
-          for (let step = 1; step <= 100; step++) {
+          for (let step = 1; step <= 120; step++) {
             statusEl.textContent = 'Prebieha dávka #' + step + ' (kopírujem R2 a aktualizujem D1)...';
             const res = await fetch('/api/admin/migrate-ascii', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ mode: 'migrate', batchSize: 2 }),
+              body: JSON.stringify({ mode: 'migrate', batchSize: 1 }),
             });
             const data = await res.json().catch(() => ({}));
             totalBatches++;
@@ -631,7 +650,11 @@ const renderDryRunHtml = (report) => {
                 if (r.status === 'error') errors.push({ step, ...r });
               }
             }
-            statusEl.textContent = 'Dávka #' + step + ' hotová: migrovaných ' + totalSucceeded + ', chýb ' + totalFailed + ', zostáva ' + lastRemaining + '.';
+            if (data.partialCopy) {
+              statusEl.textContent = 'Dávka #' + step + ': kopírujem R2 pre ' + (data.partialArtworkId || 'dielo') + ' (' + data.copiedPairsThisCall + ' párov), zostáva ' + lastRemaining + '...';
+            } else {
+              statusEl.textContent = 'Dávka #' + step + ' hotová: migrovaných ' + totalSucceeded + ', chýb ' + totalFailed + ', zostáva ' + lastRemaining + '.';
+            }
             if (totalFailed > 0 || done || Number(data.processed) === 0) break;
           }
 
@@ -683,12 +706,12 @@ const renderDryRunHtml = (report) => {
         let totalDeleted = 0;
         let totalSkipped = 0;
         try {
-          for (let step = 1; step <= 30; step++) {
+          for (let step = 1; step <= 60; step++) {
             cleanupStatusEl.textContent = 'Cleanup dávka #' + step + '...';
             const res = await fetch('/api/admin/migrate-ascii', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ mode: 'cleanup', confirm: 'CLEANUP_OLD_R2', batchSize: 50 }),
+              body: JSON.stringify({ mode: 'cleanup', confirm: 'CLEANUP_OLD_R2', batchSize: 15 }),
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
@@ -710,9 +733,10 @@ const renderDryRunHtml = (report) => {
 };
 
 const runMigrateMode = async (env, batchSizeRaw) => {
-  const batchSize = Math.max(1, Math.min(15, Number(batchSizeRaw) || 5));
+  const batchSize = Math.max(1, Math.min(5, Number(batchSizeRaw) || 1));
+  const MAX_PAIRS_PER_CALL = 4;
   await ensureMigrationLogTable(env);
-  const plan = await buildMigrationPlan(env);
+  const plan = await buildMigrationPlan(env, { includeR2Scan: false, includeFullSchema: false });
 
   if (plan.collisions.total > 0) {
     return jsonResponse({
@@ -728,23 +752,23 @@ const runMigrateMode = async (env, batchSizeRaw) => {
   let succeeded = 0;
   let failed = 0;
   let processed = 0;
-  let r2CopiesInRequest = 0;
+  let copiedPairsThisCall = 0;
   const nowIso = new Date().toISOString();
 
   for (const item of slice) {
-    if (processed > 0 && (r2CopiesInRequest >= 16 || (r2CopiesInRequest > 0 && item.uniqueR2Pairs.length >= 12))) {
+    if (processed > 0 && copiedPairsThisCall >= MAX_PAIRS_PER_CALL) {
       break;
     }
     processed++;
     try {
       // 1. Copy every non-ASCII R2 object (and its thumbnail) to the new ASCII key and verify size
-      for (const pair of item.uniqueR2Pairs) {
-        let needCopyMain = !plan.r2Map.has(pair.newKey);
-        if (!needCopyMain) {
-          const existingTarget = await env.IMAGES.head(pair.newKey);
-          if (!existingTarget) needCopyMain = true;
-        }
-        if (needCopyMain) {
+      let partialCopy = false;
+      for (let pIdx = 0; pIdx < item.uniqueR2Pairs.length; pIdx++) {
+        const pair = item.uniqueR2Pairs[pIdx];
+        let copiedThisPair = false;
+
+        const existingTarget = await env.IMAGES.head(pair.newKey);
+        if (!existingTarget) {
           const srcObj = await env.IMAGES.get(pair.oldKey);
           if (!srcObj) {
             throw new Error(`Zdrojový objekt v R2 chýba: ${pair.oldKey}`);
@@ -758,22 +782,17 @@ const runMigrateMode = async (env, batchSizeRaw) => {
           if (!verified || verified.size !== srcBuf.byteLength) {
             throw new Error(`Overenie skopírovaného R2 objektu zlyhalo: ${pair.newKey}`);
           }
-          r2CopiesInRequest++;
+          copiedThisPair = true;
         }
 
         const oldThumbKey = `thumbs/${pair.oldKey}`;
         const newThumbKey = `thumbs/${pair.newKey}`;
-        if (plan.r2Map.has(oldThumbKey)) {
-          let needCopyThumb = !plan.r2Map.has(newThumbKey);
-          if (!needCopyThumb) {
-            const existingThumb = await env.IMAGES.head(newThumbKey);
-            if (!existingThumb) needCopyThumb = true;
-          }
-          if (needCopyThumb) {
-            const srcThumb = await env.IMAGES.get(oldThumbKey);
-            if (!srcThumb) {
-              throw new Error(`Zdrojový thumbnail v R2 chýba: ${oldThumbKey}`);
-            }
+        const existingThumbTarget = await env.IMAGES.head(newThumbKey);
+        if (existingThumbTarget) {
+          pair.hasThumb = true;
+        } else {
+          const srcThumb = await env.IMAGES.get(oldThumbKey);
+          if (srcThumb) {
             const thumbBuf = await srcThumb.arrayBuffer();
             await env.IMAGES.put(newThumbKey, thumbBuf, {
               httpMetadata: srcThumb.httpMetadata,
@@ -783,9 +802,43 @@ const runMigrateMode = async (env, batchSizeRaw) => {
             if (!verifiedThumb || verifiedThumb.size !== thumbBuf.byteLength) {
               throw new Error(`Overenie skopírovaného thumbnailu zlyhalo: ${newThumbKey}`);
             }
-            r2CopiesInRequest++;
+            pair.hasThumb = true;
+            copiedThisPair = true;
+          } else {
+            pair.hasThumb = false;
           }
         }
+
+        if (copiedThisPair) {
+          copiedPairsThisCall++;
+        }
+        if (copiedPairsThisCall >= MAX_PAIRS_PER_CALL && pIdx < item.uniqueR2Pairs.length - 1) {
+          partialCopy = true;
+          break;
+        }
+      }
+
+      if (partialCopy) {
+        results.push({
+          oldId: item.oldId,
+          newId: item.newId,
+          status: 'partial_r2_copy',
+          copiedPairsThisCall,
+        });
+        return jsonResponse({
+          mode: 'migrate',
+          batchSize,
+          processed,
+          succeeded,
+          failed,
+          partialCopy: true,
+          partialArtworkId: item.oldId,
+          copiedPairsThisCall,
+          remaining: Math.max(0, plan.artworksToMigrate.length - succeeded),
+          done: false,
+          oldR2ObjectsDeleted: 0,
+          results,
+        });
       }
 
       // 2. Atomically update D1 (artworks, artwork_images, inquiries, ascii_migration_log)
@@ -913,7 +966,7 @@ const runMigrateMode = async (env, batchSizeRaw) => {
 };
 
 const runCleanupMode = async (env, { confirm, batchSize: batchSizeRaw, dryRun }) => {
-  const batchSize = Math.max(1, Math.min(100, Number(batchSizeRaw) || 50));
+  const batchSize = Math.max(1, Math.min(25, Number(batchSizeRaw) || 15));
 
   let pendingRows = [];
   try {
@@ -1028,8 +1081,11 @@ export async function handleMigrateRequest(request, env, url, pathname) {
   }
 
   try {
+    const includeR2Scan = url.searchParams.get('scanR2') === '1';
+    const includeFullSchema = url.searchParams.get('full') === '1';
+
     if (request.method === 'GET') {
-      const plan = await buildMigrationPlan(env);
+      const plan = await buildMigrationPlan(env, { includeR2Scan, includeFullSchema });
       const report = formatDryRunPayload(plan);
       const fmt = (url.searchParams.get('format') || '').toLowerCase();
       const accept = request.headers.get('Accept') || '';
@@ -1051,7 +1107,7 @@ export async function handleMigrateRequest(request, env, url, pathname) {
     const mode = String((body && body.mode) || url.searchParams.get('mode') || 'dry-run').toLowerCase();
 
     if (mode === 'dry-run') {
-      const plan = await buildMigrationPlan(env);
+      const plan = await buildMigrationPlan(env, { includeR2Scan, includeFullSchema });
       return jsonResponse(formatDryRunPayload(plan));
     }
 
