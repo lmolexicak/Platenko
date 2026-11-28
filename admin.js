@@ -8,6 +8,15 @@
 (function () {
   "use strict";
 
+  function escapeHtml(str) {
+    return String(str ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   let artworks = [];
   let editingId = null;
 
@@ -457,10 +466,10 @@
       card.innerHTML = `
         <div class="adm-inq-head">
           <div>
-            <strong>${inq.senderName}</strong>
-            <span style="font-size:0.8rem;color:var(--text-muted);margin-left:6px;">${inq.senderContact}</span>
+            <strong>${escapeHtml(inq.senderName)}</strong>
+            <span style="font-size:0.8rem;color:var(--text-muted);margin-left:6px;">${escapeHtml(inq.senderContact)}</span>
             <div style="font-size:0.76rem;color:var(--text-muted);margin-top:2px;">
-              ${dateStr}${inq.artworkTitle ? ` · Dielo: <button type="button" class="preset-chip adm-inq-jump" style="padding:1px 7px;">${inq.artworkTitle}</button>` : ""}
+              ${escapeHtml(dateStr)}${inq.artworkTitle ? ` · Dielo: <button type="button" class="preset-chip adm-inq-jump" style="padding:1px 7px;">${escapeHtml(inq.artworkTitle)}</button>` : ""}
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:6px;">
@@ -1037,14 +1046,14 @@
         ? `<div class="adm-integ-fields">${(integ.fields || []).map((f) => `
             <div>
               <label class="edit-label" style="font-size:0.74rem;margin-bottom:3px;">
-                ${f.label} ${f.hasValue ? '<span style="color:#16a34a;">(uložené)</span>' : ""}
+                ${escapeHtml(f.label)} ${f.hasValue ? '<span style="color:#16a34a;">(uložené)</span>' : ""}
               </label>
               <input
                 type="${f.secret ? "password" : "text"}"
                 class="edit-input adm-integ-input"
-                data-field="${f.key}"
+                data-field="${escapeHtml(f.key)}"
                 autocomplete="off"
-                placeholder="${f.hasValue ? "•••• (ponechaj prázdne pre zachovanie)" : (f.placeholder || "")}"
+                placeholder="${f.hasValue ? "•••• (ponechaj prázdne pre zachovanie)" : escapeHtml(f.placeholder || "")}"
               >
             </div>
           `).join("")}</div>`
@@ -1064,16 +1073,16 @@
       card.innerHTML = `
         <div class="adm-integ-head">
           <div>
-            <strong style="font-size:0.95rem;">${integ.label}</strong>
+            <strong style="font-size:0.95rem;">${escapeHtml(integ.label)}</strong>
             <div class="adm-integ-meta">
-              ${integ.accountName ? `<span>👤 ${integ.accountName}</span>` : ""}
-              ${sourceLabel ? `<span>🔒 ${sourceLabel}</span>` : ""}
-              ${expStr ? `<span>⏳ Platnosť do: ${expStr}</span>` : ""}
+              ${integ.accountName ? `<span>👤 ${escapeHtml(integ.accountName)}</span>` : ""}
+              ${sourceLabel ? `<span>🔒 ${escapeHtml(sourceLabel)}</span>` : ""}
+              ${expStr ? `<span>⏳ Platnosť do: ${escapeHtml(expStr)}</span>` : ""}
             </div>
           </div>
-          <span class="adm-integ-badge ${integ.status || "disconnected"}">${badgeLabels[integ.status] || integ.status}</span>
+          <span class="adm-integ-badge ${escapeHtml(integ.status || "disconnected")}">${escapeHtml(badgeLabels[integ.status] || integ.status)}</span>
         </div>
-        ${integ.lastError ? `<div class="settings-error" style="font-size:0.78rem;padding:6px 10px;margin:0;">${integ.lastError}</div>` : ""}
+        ${integ.lastError ? `<div class="settings-error" style="font-size:0.78rem;padding:6px 10px;margin:0;">${escapeHtml(integ.lastError)}</div>` : ""}
         ${fieldsHtml}
         <div class="adm-integ-actions">${actionsHtml}</div>
       `;
@@ -1263,12 +1272,12 @@
       };
 
       chip.innerHTML = `
-        <label class="adm-pub-chip-left" title="Vybrať pre publikovanie na ${ch.label}">
-          <input type="checkbox" class="adm-art-ch-chk" data-channel="${ch.key}" ${isChecked ? "checked" : ""}>
-          <span class="adm-pub-chip-name">${ch.label}</span>
+        <label class="adm-pub-chip-left" title="Vybrať pre publikovanie na ${escapeHtml(ch.label)}">
+          <input type="checkbox" class="adm-art-ch-chk" data-channel="${escapeHtml(ch.key)}" ${isChecked ? "checked" : ""}>
+          <span class="adm-pub-chip-name">${escapeHtml(ch.label)}</span>
         </label>
         <div style="display:inline-flex;align-items:center;gap:4px;">
-          <span class="adm-pub-state ${st}" title="${entry.error || entry.url || entry.note || ""}">${stateLabels[st] || st}</span>
+          <span class="adm-pub-state ${escapeHtml(st)}" title="${escapeHtml(entry.error || entry.url || entry.note || "")}">${escapeHtml(stateLabels[st] || st)}</span>
           ${(st === "error" || st === "published" || st === "drafted")
             ? `<button type="button" class="adm-icon-btn adm-pub-reset" style="width:22px;height:22px;font-size:0.7rem;" title="Resetovať stav na čakajúce">↺</button>`
             : ""}
@@ -1379,7 +1388,7 @@
           const icon = res.status === "published" ? "✅" : (res.status === "drafted" ? "📝" : (res.status === "error" ? "❌" : "ℹ️"));
           const countTag = res.photoCount > 0 ? ` (${res.photoCount} fotiek)` : "";
           const detail = (res.error || res.note || res.url || res.status) + (res.note && res.note.includes("fotiek") ? "" : countTag);
-          row.innerHTML = `<strong>${icon} ${label}</strong><span style="color:${res.status === "error" ? "#dc2626" : "var(--text-muted)"};">${detail}</span>`;
+          row.innerHTML = `<strong>${icon} ${escapeHtml(label)}</strong><span style="color:${res.status === "error" ? "#dc2626" : "var(--text-muted)"};">${escapeHtml(detail)}</span>`;
           dom.publishResultBox.appendChild(row);
         });
       }
@@ -1991,17 +2000,17 @@
           </div>
         </td>
         <td>
-          <img src="${thumbSrc}" alt="${art.title}" class="adm-row-thumb" loading="lazy" decoding="async">
+          <img src="${escapeHtml(thumbSrc)}" alt="${escapeHtml(art.title || "")}" class="adm-row-thumb" loading="lazy" decoding="async">
         </td>
         <td>
           <strong style="display:block;font-size:0.92rem;">
-            ${art.title}
+            ${escapeHtml(art.title || "")}
             <span class="adm-micro-badges">
               ${priced ? `<span class="adm-micro-badge ok" title="Zadaná cena">€</span>` : ""}
               ${published ? `<span class="adm-micro-badge social" title="Publikované na sieti / portáli">🚀</span>` : ""}
             </span>
           </strong>
-          <span style="font-size:0.78rem;color:var(--text-muted);">${dimsLabel} · ${art.date || art.year || ""} · ${art.photoCount || (art.detailImages ? art.detailImages.length : 1)} fotiek</span>
+          <span style="font-size:0.78rem;color:var(--text-muted);">${escapeHtml(dimsLabel)} · ${escapeHtml(art.date || art.year || "")} · ${art.photoCount || (art.detailImages ? art.detailImages.length : 1)} fotiek</span>
         </td>
         <td>
           <select class="status-select adm-row-status"></select>

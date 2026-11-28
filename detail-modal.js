@@ -9,6 +9,15 @@
 
   const INSTAGRAM_FALLBACK = "https://www.instagram.com/platenko.akryl";
 
+  function escapeHtml(str) {
+    return String(str ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   let currentArt = null;
   let helpers = {
     toThumbUrl: (u) => u,
@@ -105,6 +114,7 @@
     el.inquiryName = document.getElementById("inquiryName");
     el.inquiryContact = document.getElementById("inquiryContact");
     el.inquiryMessage = document.getElementById("inquiryMessage");
+    el.inquiryWebsite = document.getElementById("inquiryHp");
     el.inquiryFeedback = document.getElementById("inquiryFeedback");
     el.inquiryMailtoBtn = document.getElementById("modalInquireBtn");
     el.inquiryCopyBtn = document.getElementById("modalCopyInquiryBtn");
@@ -573,7 +583,7 @@
       images.forEach((imgUrl, idx) => {
         const t = document.createElement("div");
         t.className = `modal-thumb ${idx === 0 ? "active" : ""}`;
-        t.innerHTML = `<img src="${helpers.toThumbUrl(imgUrl)}" alt="${art.title} foto ${idx + 1}" loading="lazy" decoding="async">`;
+        t.innerHTML = `<img src="${escapeHtml(helpers.toThumbUrl(imgUrl))}" alt="${escapeHtml(art.title || "")} foto ${idx + 1}" loading="lazy" decoding="async">`;
         t.addEventListener("click", () => {
           imageIdx = idx;
           renderMainImage();
@@ -846,6 +856,7 @@
               senderName,
               senderContact,
               message,
+              website: el.inquiryWebsite ? el.inquiryWebsite.value : "",
             }),
           });
           const data = await resp.json().catch(() => ({}));
@@ -854,6 +865,7 @@
           }
           if (el.inquiryName) el.inquiryName.value = "";
           if (el.inquiryContact) el.inquiryContact.value = "";
+          if (el.inquiryWebsite) el.inquiryWebsite.value = "";
           showInquiryFeedback("✓ Ďakujeme! Dopyt bol odoslaný a uložený — čoskoro sa vám ozveme.", false);
         } catch (err) {
           showInquiryFeedback("Nepodarilo sa odoslať dopyt: " + (err.message || "chyba siete"), true);

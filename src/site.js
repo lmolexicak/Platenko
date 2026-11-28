@@ -39,10 +39,16 @@ export const ensureSiteSchema = async (env) => {
         sender_contact TEXT NOT NULL,
         message TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'new',
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        sender_ip TEXT DEFAULT ''
       )
     `),
   ]);
+  try {
+    await env.DB.prepare(`ALTER TABLE inquiries ADD COLUMN sender_ip TEXT DEFAULT ''`).run();
+  } catch (err) {
+    if (!/duplicate column/i.test(String(err && err.message))) throw err;
+  }
   siteSchemaReady = true;
 };
 
@@ -190,7 +196,7 @@ export async function serveIndexWithDynamicOG(request, env, url) {
   }
 }
 
-export async function handleSiteRequest(request, env, url, pathname) {
+export async function handleSiteRequest(request, env, url, pathname, ctx) {
   // GET /api/site-settings (Public)
   if (pathname === '/api/site-settings' && request.method === 'GET') {
     try {
@@ -244,17 +250,34 @@ export async function handleSiteRequest(request, env, url, pathname) {
     try {
       await ensureSiteSchema(env);
       const body = await request.json().catch(() => ({}));
+
+      // Honeypot anti-spam check
+      if (typeof body.website === 'string' && body.website.trim().length > 0) {
+        return jsonResponse({ success: true, id: null }, 201);
+      }
+
       const senderName = typeof body.senderName === 'string' ? body.senderName.trim() : '';
       const senderContact = typeof body.senderContact === 'string' ? body.senderContact.trim() : '';
       const message = typeof body.message === 'string' ? body.message.trim() : '';
-      const artworkId = typeof body.artworkId === 'string' ? body.artworkId.trim() : '';
-      const artworkTitle = typeof body.artworkTitle === 'string' ? body.artworkTitle.trim() : '';
+      const artworkId = (typeof body.artworkId === 'string' ? body.artworkId.trim() : '').slice(0, 120);
+      const artworkTitle = (typeof body.artworkTitle === 'string' ? body.artworkTitle.trim() : '').slice(0, 200);
 
       if (!senderName) {
         return jsonResponse({ error: 'Zadaj prosím svoje meno.' }, 400);
       }
+      if (senderName.length > 120) {
+        return jsonResponse({ error: 'Meno je príliš dlhé (max 120 znakov).' }, 400);
+      }
       if (!senderContact) {
         return jsonResponse({ error: 'Zadaj prosím svoj e-mail alebo telefón.' }, 400);
+      }
+      if (senderContact.length > 160) {
+        return jsonResponse({ error: 'Kontakt je príliš dlhý (max 160 znakov).' }, 400);
+      }
+      const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(senderContact);
+      const digitCount = (senderContact.match(/\d/g) || []).length;
+      if (!isValidEmail && digitCount < 6) {
+        return jsonResponse({ error: 'Zadaj prosím platný e-mail alebo telefónne číslo.' }, 400);
       }
       if (message.length < 5) {
         return jsonResponse({ error: 'Správa musí mať aspoň 5 znakov.' }, 400);
@@ -263,21 +286,40 @@ export async function handleSiteRequest(request, env, url, pathname) {
         return jsonResponse({ error: 'Správa je príliš dlhá (max 4000 znakov).' }, 400);
       }
 
+      const senderIp = (
+        request.headers.get('CF-Connecting-IP') ||
+        (request.headers.get('X-Forwarded-For') || '').split(',')[0] ||
+        ''
+      ).trim().slice(0, 64);
+
+      if (senderIp) {
+        const windowStart = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+        const rateRow = await env.DB.prepare(
+          `SELECT COUNT(*) AS cnt FROM inquiries WHERE sender_ip = ? AND created_at > ?`
+        )
+          .bind(senderIp, windowStart)
+          .first();
+        if (rateRow && Number(rateRow.cnt) >= 5) {
+          return jsonResponse({ error: 'Príliš veľa dopytov za krátky čas. Skúste to prosím neskôr.' }, 429);
+        }
+      }
+
       const createdAt = new Date().toISOString();
       const res = await env.DB.prepare(`
-        INSERT INTO inquiries (artwork_id, artwork_title, sender_name, sender_contact, message, status, created_at)
-        VALUES (?, ?, ?, ?, ?, 'new', ?)
+        INSERT INTO inquiries (artwork_id, artwork_title, sender_name, sender_contact, message, status, created_at, sender_ip)
+        VALUES (?, ?, ?, ?, ?, 'new', ?, ?)
       `)
-        .bind(artworkId, artworkTitle, senderName, senderContact, message, createdAt)
+        .bind(artworkId, artworkTitle, senderName, senderContact, message, createdAt, senderIp)
         .run();
 
       const insertedId = res && res.meta ? res.meta.last_row_id : null;
 
       // Optional non-blocking webhook notification (e.g. Telegram/Discord/Make)
       if (env.INQUIRY_WEBHOOK_URL && String(env.INQUIRY_WEBHOOK_URL).trim()) {
-        fetch(String(env.INQUIRY_WEBHOOK_URL).trim(), {
+        const webhookReq = fetch(String(env.INQUIRY_WEBHOOK_URL).trim(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
           body: JSON.stringify({
             id: insertedId,
             artworkId,
@@ -289,11 +331,15 @@ export async function handleSiteRequest(request, env, url, pathname) {
             url: artworkId ? `${url.origin}/?dielo=${encodeURIComponent(artworkId)}` : url.origin,
           }),
         }).catch(() => {});
+        if (ctx && typeof ctx.waitUntil === 'function') {
+          ctx.waitUntil(webhookReq);
+        }
       }
 
       return jsonResponse({ success: true, id: insertedId }, 201);
     } catch (err) {
-      return jsonResponse({ error: err.message }, 500);
+      console.error('POST /api/inquiry failed:', err);
+      return jsonResponse({ error: 'Dopyt sa nepodarilo odoslať.' }, 500);
     }
   }
 

@@ -7,6 +7,15 @@
 (function () {
   "use strict";
 
+  function escapeHtml(str) {
+    return String(str ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   const CARD_WIDTH_CM = 8.56;
   const CARD_HEIGHT_CM = 5.4;
 
@@ -287,8 +296,8 @@
       const chip = document.createElement("div");
       chip.className = "ar-stack-chip";
       chip.innerHTML = `
-        <img src="${toThumbUrl(entry.art.coverImage)}" alt="${entry.art.title}">
-        <span>${entry.art.title} (${entry.dims.wCm}×${entry.dims.hCm} cm)</span>
+        <img src="${escapeHtml(toThumbUrl(entry.art.coverImage))}" alt="${escapeHtml(entry.art.title)}">
+        <span>${escapeHtml(entry.art.title)} (${entry.dims.wCm}×${entry.dims.hCm} cm)</span>
         ${hungItems.length > 1 ? '<button type="button" title="Odobrať">✕</button>' : ""}
       `;
       const rmBtn = chip.querySelector("button");
@@ -317,8 +326,8 @@
       card.type = "button";
       card.className = "ar-drawer-item";
       card.innerHTML = `
-        <img src="${toThumbUrl(art.coverImage)}" alt="${art.title}" loading="lazy">
-        <span class="ar-drawer-name">${art.title}</span>
+        <img src="${escapeHtml(toThumbUrl(art.coverImage))}" alt="${escapeHtml(art.title)}" loading="lazy">
+        <span class="ar-drawer-name">${escapeHtml(art.title)}</span>
         <span class="ar-drawer-size">${d.wCm} × ${d.hCm} cm</span>
       `;
       card.addEventListener("click", () => {

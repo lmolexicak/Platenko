@@ -17,7 +17,7 @@
       }
     }
   </script>
-  <link rel="stylesheet" href="styles.css?v=20261128a">
+  <link rel="stylesheet" href="styles.css?v=20261128c">
 </head>
 <body>
 
@@ -314,16 +314,17 @@
             <div style="display: flex; flex-direction: column; gap: 12px;">
               <div>
                 <label class="edit-label" for="inquiryName">Vaše meno</label>
-                <input type="text" id="inquiryName" class="edit-input" placeholder="Meno a priezvisko">
+                <input type="text" id="inquiryName" class="edit-input" maxlength="120" placeholder="Meno a priezvisko">
               </div>
               <div>
                 <label class="edit-label" for="inquiryContact">Váš e-mail alebo telefón</label>
-                <input type="text" id="inquiryContact" class="edit-input" placeholder="napr. meno@domena.sk">
+                <input type="text" id="inquiryContact" class="edit-input" maxlength="160" placeholder="napr. meno@domena.sk">
               </div>
               <div>
                 <label class="edit-label" for="inquiryMessage">Správa</label>
-                <textarea id="inquiryMessage" class="edit-input" rows="4"></textarea>
+                <textarea id="inquiryMessage" class="edit-input" maxlength="4000" rows="4"></textarea>
               </div>
+              <input type="text" id="inquiryHp" name="hp_extra_field" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;">
               <div id="inquiryFeedback" class="inquiry-feedback" style="display: none;"></div>
               <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px;">
                 <button type="button" id="modalInquireBtn" class="btn-primary" style="flex: 1;">
@@ -525,7 +526,7 @@
   </footer>
 
   <!-- Scripts (3D Gallery & WebAR are lazy-loaded on demand in app.js) -->
-  <script src="detail-modal.js?v=20261128a"></script>
-  <script src="app.js?v=20261128a"></script>
+  <script src="detail-modal.js?v=20261128c"></script>
+  <script src="app.js?v=20261128c"></script>
 </body>
 </html>

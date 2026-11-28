@@ -319,7 +319,7 @@ export default {
 
     // 4. Delegated Feature API Routers
     if (pathname.startsWith('/api/site-settings') || pathname.startsWith('/api/inquir')) {
-      const siteRes = await handleSiteRequest(request, env, url, pathname);
+      const siteRes = await handleSiteRequest(request, env, url, pathname, ctx);
       if (siteRes) return siteRes;
     }
 

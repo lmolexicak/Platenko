@@ -17,8 +17,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const searchInput = document.getElementById("gallerySearchInput");
   const filterResetBtn = document.getElementById("galleryFilterResetBtn");
   const resultHintEl = document.getElementById("galleryResultHint");
-  const ASSET_VER = "20261128a";
+  const ASSET_VER = "20261128c";
   const loadedScriptPromises = new Map();
+
+  function escapeHtml(str) {
+    return String(str ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
 
   const PAGE_SIZE = 24;
   let activeStatusFilter = "all";
@@ -608,17 +617,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
       card.innerHTML = `
         <div class="card-image-wrap">
-          <img src="${toThumbUrl(art.coverImage)}" alt="${art.title}" ${imgLoadingAttrs} decoding="async">
+          <img src="${escapeHtml(toThumbUrl(art.coverImage))}" alt="${escapeHtml(art.title || "")}" ${imgLoadingAttrs} decoding="async">
         </div>
         <div class="card-details">
           <div class="card-title-row">
-            <h3 class="card-title">${art.title}</h3>
-            <span class="status-pill ${statusInfo.badgeClass}">${statusInfo.label}</span>
+            <h3 class="card-title">${escapeHtml(art.title || "")}</h3>
+            <span class="status-pill ${escapeHtml(statusInfo.badgeClass)}">${escapeHtml(statusInfo.label)}</span>
           </div>
           <div class="card-submeta">
-            <span>${art.dimensions || "50 × 70 cm"}</span>
+            <span>${escapeHtml(art.dimensions || "50 × 70 cm")}</span>
             <span>·</span>
-            <span>${art.medium || "Akryl na plátne"}</span>
+            <span>${escapeHtml(art.medium || "Akryl na plátne")}</span>
             ${photoCount > 1 ? `<span>· ${photoCount} fotiek</span>` : ""}
           </div>
         </div>

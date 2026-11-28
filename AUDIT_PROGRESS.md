@@ -11,10 +11,12 @@ Interné súbory: `AUDIT_PROGRESS.md` nepatrí na verejný hosting (pozri pozná
 - Poznámka: `node` nie je na PATH, `node --check` sa nedal spustiť; zmeny som skontroloval ručne cez `git diff`.
 - Poznámka k #5: `err.message` ostáva v ostatných 500-kách (iné route). Rieši sa neskôr podľa potreby.
 
-## Dávka B — XSS & Bezpečnosť dopytov ⬜
-- [ ] **#1** Stored XSS v `admin.js` (dopyty) + limity dĺžky polí v `src/site.js`
-- [ ] **#2** Escapovanie textov diel / chýb API (`app.js`, `detail-modal.js`, `admin.js`)
-- [ ] **#8** Anti-spam `/api/inquiry` (rate-limit/honeypot, limity polí, `ctx.waitUntil` pre webhook)
+## Dávka B — XSS & Bezpečnosť dopytov ✅
+- [x] **#1** Stored XSS v `admin.js` (escapovanie polí v `renderInquiriesList()`, `renderIntegrationsList()`, `renderArtworkPublishPanel()`, `publishNowForArtwork()`, `renderInventory()`) + limity dĺžky polí a validácia kontaktu v `src/site.js`. *Zmenené: `admin.js`, `src/site.js`*
+- [x] **#2** Escapovanie textov diel / chýb API cez `escapeHtml` helper v `app.js` (`renderNextBatch`), `detail-modal.js` (`open` miniatúry) a `admin.js`. *Zmenené: `app.js`, `detail-modal.js`, `admin.js`*
+- [x] **#8** Anti-spam `/api/inquiry`: skryté honeypot pole `website` (`index.html`, `detail-modal.js`, `src/site.js`), `maxlength` atribúty, D1 rate-limit max 5 dopytov za 15 minút podľa `sender_ip` (vrátane migrácie stĺpca `sender_ip`), `AbortSignal.timeout(8000)` + `ctx.waitUntil` pre webhook a všeobecná 500 chybová hláška. *Zmenené: `worker.js`, `src/site.js`, `index.html`, `detail-modal.js`*
+- Kontrola po Gemini: doplnené escapovanie v `ar-viewer.js` a `sorter.html`, honeypot premenovaný na `inquiryHp`/`hp_extra_field` (ochrana pred autofillom). Cache-busting `20261128c`.
+- Cache-busting `?v=20261128a` → `20261128b`. *Zmenené: `index.html`, `admin.html`, `sorter.html`, `whatsnew.html`, `app.js`*
 
 ## Dávka C — Bezpečné publikovanie & Zámok ⬜
 - [ ] **#3** Ochrana proti duplicitnému publikovaniu (`src/automation.js`, `admin.js`)

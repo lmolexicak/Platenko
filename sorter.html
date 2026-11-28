@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261128a">
-  <link rel="stylesheet" href="admin.css?v=20261128a">
+  <link rel="stylesheet" href="styles.css?v=20261128c">
+  <link rel="stylesheet" href="admin.css?v=20261128c">
   <style>
     .sorter-container { max-width: 1200px; margin: 20px auto 80px; padding: 0 24px; }
     
@@ -274,6 +274,15 @@
     let mergeSelection = []; // array of selected IDs (can be 2, 3, 4+)
     let mergePrimaryId = null; // which painting keeps title and cover
 
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
     function toThumbUrl(url) {
       if (!url || typeof url !== "string") return url;
       if (url.startsWith("data:") || url.startsWith("blob:")) return url;
@@ -454,8 +463,8 @@
         card.className = `merge-preview-card ${isPrimary ? "pick-title" : ""}`;
         card.innerHTML = `
           ${isPrimary ? '<span class="merge-badge-primary">HLAVNÝ</span>' : ''}
-          <img src="${toThumbUrl(art.coverImage)}" alt="${art.title}" loading="lazy" decoding="async">
-          <strong>${art.title}</strong>
+          <img src="${escapeHtml(toThumbUrl(art.coverImage))}" alt="${escapeHtml(art.title)}" loading="lazy" decoding="async">
+          <strong>${escapeHtml(art.title)}</strong>
           <span>${art.date || art.year}</span>
           <span style="display:block;margin-top:4px;font-size:0.75rem;">📷 ${(art.detailImages || [art.coverImage]).length} fotiek</span>
         `;
